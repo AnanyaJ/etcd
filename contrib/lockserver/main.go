@@ -22,7 +22,7 @@ func main() {
 	lsport := flag.Int("port", 9121, "lock server port")
 	flag.Parse()
 
-	lockServer := newLockServer()
+	lockServer := newCondVarLockServer()
 
 	// the key-value http handler will propose updates to raft
 	serveHTTPLSAPI(lockServer, *lsport, make(<-chan struct{}))

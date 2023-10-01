@@ -42,7 +42,8 @@ func (h *httpLSAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		var success bool
 		if key == "/acquire" {
-			success = h.server.Acquire(lockName)
+			h.server.Acquire(lockName)
+			success = true
 		} else if key == "/release" {
 			success = h.server.Release(lockName)
 		} else if key == "/islocked" {
