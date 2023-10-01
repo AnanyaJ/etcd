@@ -4,9 +4,10 @@ import (
 	"sync"
 )
 
-// Single-server lock service built with condition variables.
-// For Acquires, blocks until the lock is available. This blocking is done using Go
-// condition variables, which only works because the server is not replicated.
+// Single-server lock service built using Go condition variables. This lock server
+// is more performant than one that uses polling (and does not require picking a
+// sleep duration), but currently cannot be replicated using e.g. Raft due to the use of
+// condition variables.
 type CondVarLockServer struct {
 	mu    *sync.Mutex
 	locks map[string]*lock
