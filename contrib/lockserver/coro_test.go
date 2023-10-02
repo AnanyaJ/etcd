@@ -35,48 +35,48 @@ func TestCoro(t *testing.T) {
 		func(key Key) { numSignals++ },
 	)
 
-	done := coro1()
-	if numSignals != 1 || done {
+	err, done := coro1()
+	if numSignals != 1 || done || err != nil {
 		t.Fatalf("First coro should be at first signal")
 	}
 
-	done = coro2()
-	if !coro2WaitedForSecondLock || done {
+	err, done = coro2()
+	if !coro2WaitedForSecondLock || done || err != nil {
 		t.Fatalf("Second coro should have to wait for second lock")
 	}
 
-	done = coro2()
-	if done {
+	err, done = coro2()
+	if done || err != nil {
 		t.Fatalf("Second coro should still be waiting for second lock")
 	}
 
-	done = coro1()
-	if numSignals != 2 || done {
+	err, done = coro1()
+	if numSignals != 2 || done || err != nil {
 		t.Fatalf("First coro should be at second signal")
 	}
 
-	done = coro1()
-	if !done {
+	err, done = coro1()
+	if !done || err != nil {
 		t.Fatalf("First coro should have completed")
 	}
 
-	done = coro2()
-	if numSignals != 3 || done {
+	err, done = coro2()
+	if numSignals != 3 || done || err != nil {
 		t.Fatalf("Second coro should be at first signal")
 	}
 
-	done = coro2()
-	if numSignals != 4 || done {
+	err, done = coro2()
+	if numSignals != 4 || done || err != nil {
 		t.Fatalf("Second coro should be at second signal")
 	}
 
-	done = coro2()
-	if !done {
+	err, done = coro2()
+	if !done || err != nil {
 		t.Fatalf("Second coro should have completed")
 	}
 }
 
-func f(locks lockpair, wait func(Key), signal func(Key)) {
+func f(locks lockpair, wait func(Key), signal func(Key)) error {
 	// acquire first lock
 	for *locks.first == 1 {
 		wait(1)
@@ -100,4 +100,6 @@ func f(locks lockpair, wait func(Key), signal func(Key)) {
 	// release second lock
 	*locks.second = 0
 	signal(2)
+
+	return nil
 }

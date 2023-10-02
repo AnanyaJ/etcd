@@ -4,22 +4,23 @@ type Continue struct{}
 type Key interface{}
 
 // TODO: propagate panics to caller
-func CreateCoro[In any](
-	f func(in In, wait func(Key), signal func(Key)),
+func CreateCoro[In, Out any](
+	f func(in In, wait func(Key), signal func(Key)) Out,
 	in In,
 	onWait func(Key),
 	onSignal func(Key),
-) (resume func() bool) {
+) (resume func() (Out, bool)) {
 	cin := make(chan Continue)
 	cout := make(chan Continue)
+	var out Out
 	isDone := false
-	resume = func() (done bool) {
+	resume = func() (output Out, done bool) {
 		if isDone {
-			return true
+			return out, true
 		}
 		cin <- Continue{}
 		<-cout
-		return isDone
+		return out, isDone
 	}
 	wait := func(key Key) {
 		onWait(key)
@@ -33,7 +34,7 @@ func CreateCoro[In any](
 	}
 	go func() {
 		<-cin
-		f(in, wait, signal)
+		out = f(in, wait, signal)
 		isDone = true
 		cout <- Continue{}
 	}()

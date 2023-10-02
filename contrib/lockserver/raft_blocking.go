@@ -8,11 +8,16 @@ import (
 type RaftBlockingNode struct {
 	commitC          <-chan *commit
 	snapshotterReady <-chan *snap.Snapshotter
-	apply            func(string) error
+	apply            func(op []byte, wait func(Key), signal func(Key)) []byte
 }
 
-func newRaftBlockingNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error), proposeC <-chan string,
-	confChangeC <-chan raftpb.ConfChange, apply func(string) error) <-chan error {
+func newRaftBlockingNode(
+	id int, peers []string, join bool,
+	getSnapshot func() ([]byte, error),
+	proposeC <-chan []byte,
+	confChangeC <-chan raftpb.ConfChange,
+	apply func(op []byte, wait func(Key), signal func(Key)) []byte,
+) <-chan error {
 	commitC, errorC, snapshotterReady := newRaftNode(id, peers, join, getSnapshot, proposeC, confChangeC)
 	// TODO: deal with snapshots
 	n := &RaftBlockingNode{commitC, snapshotterReady, apply}
@@ -24,10 +29,8 @@ func (rn *RaftBlockingNode) applyCommittedOps() {
 	for {
 		committed := <-rn.commitC
 		for _, op := range committed.data {
-			err := rn.apply(op)
-			if err != nil {
-				// TODO: handle case where op fails to be applied
-			}
+			CreateCoro(rn.apply, op, func(Key) {}, func(Key) {})
+
 		}
 	}
 }
