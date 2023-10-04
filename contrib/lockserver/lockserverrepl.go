@@ -25,12 +25,13 @@ func (s *ReplLockServer) apply(data []byte, wait func(string), signal func(strin
 	}
 	switch op.opType {
 	case Acquire:
-		// may be able to remove for loop depending on semantics of scheduler
+		// may be able to remove loop depending on semantics of scheduler
 		for s.locks[op.lockName] {
-			wait(op.lockName)
+			wait(op.lockName) // keep waiting while lock is held
 		}
 		s.locks[op.lockName] = true
 	case Release:
+		// release lock if held
 		if s.locks[op.lockName] {
 			s.locks[op.lockName] = false
 			signal(op.lockName)
