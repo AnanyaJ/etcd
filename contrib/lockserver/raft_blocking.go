@@ -29,7 +29,7 @@ func (rn *RaftBlockingNode) applyCommittedOps() {
 	for {
 		committed := <-rn.commitC
 		for _, op := range committed.data {
-			CreateCoro(rn.apply, op, func(Key) {}, func(Key) {})
+			CreateCoro(rn.apply, op)
 
 		}
 	}

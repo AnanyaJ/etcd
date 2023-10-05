@@ -2,12 +2,6 @@ package main
 
 import "encoding/json"
 
-const (
-	Acquire int = iota
-	Release
-	IsLocked
-)
-
 type Op struct {
 	opType   int
 	lockName string
@@ -24,19 +18,19 @@ func (s *ReplLockServer) apply(data []byte, wait func(string), signal func(strin
 		// TODO: propagate error
 	}
 	switch op.opType {
-	case Acquire:
+	case AcquireOp:
 		// may be able to remove loop depending on semantics of scheduler
 		for s.locks[op.lockName] {
 			wait(op.lockName) // keep waiting while lock is held
 		}
 		s.locks[op.lockName] = true
-	case Release:
+	case ReleaseOp:
 		// release lock if held
 		if s.locks[op.lockName] {
 			s.locks[op.lockName] = false
 			signal(op.lockName)
 		}
-	case IsLocked:
+	case IsLockedOp:
 		var isLocked int8
 		if s.locks[op.lockName] {
 			isLocked = 1

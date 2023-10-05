@@ -14,64 +14,46 @@ func TestCoro(t *testing.T) {
 	var first, second int
 	locks := lockpair{first: &first, second: &second}
 
-	numSignals := 0
-	coro1 := CreateCoro(
-		f,
-		locks,
-		func(key Key) { t.Fatalf("First coro should not have to wait for any locks") },
-		func(key Key) { numSignals++ },
-	)
+	coro1 := CreateCoro(f, locks)
+	coro2 := CreateCoro(f, locks)
 
-	coro2WaitedForSecondLock := false
-	coro2 := CreateCoro(
-		f,
-		locks,
-		func(key Key) {
-			if key != 2 {
-				t.Fatalf("Second coro should only wait for second lock")
-			}
-			coro2WaitedForSecondLock = true
-		},
-		func(key Key) { numSignals++ },
-	)
-
-	err, done := coro1()
-	if numSignals != 1 || done || err != nil {
+	status, err := coro1()
+	if status.msgType() != SignalMsg || err != nil {
 		t.Fatalf("First coro should be at first signal")
 	}
 
-	err, done = coro2()
-	if !coro2WaitedForSecondLock || done || err != nil {
+	status, err = coro2()
+	if status.msgType() != WaitMsg || err != nil {
 		t.Fatalf("Second coro should have to wait for second lock")
 	}
 
-	err, done = coro2()
-	if done || err != nil {
+	status, err = coro2()
+	if status.msgType() != WaitMsg || err != nil {
 		t.Fatalf("Second coro should still be waiting for second lock")
 	}
 
-	err, done = coro1()
-	if numSignals != 2 || done || err != nil {
+	status, err = coro1()
+	if status.msgType() != SignalMsg || err != nil {
 		t.Fatalf("First coro should be at second signal")
 	}
 
-	err, done = coro1()
-	if !done || err != nil {
+	status, err = coro1()
+	if status.msgType() != DoneMsg || err != nil {
 		t.Fatalf("First coro should have completed")
 	}
 
-	err, done = coro2()
-	if numSignals != 3 || done || err != nil {
+	status, err = coro2()
+	if status.msgType() != SignalMsg || err != nil {
 		t.Fatalf("Second coro should be at first signal")
 	}
 
-	err, done = coro2()
-	if numSignals != 4 || done || err != nil {
+	status, err = coro2()
+	if status.msgType() != SignalMsg || err != nil {
 		t.Fatalf("Second coro should be at second signal")
 	}
 
-	err, done = coro2()
-	if !done || err != nil {
+	status, err = coro2()
+	if status.msgType() != DoneMsg || err != nil {
 		t.Fatalf("Second coro should have completed")
 	}
 }

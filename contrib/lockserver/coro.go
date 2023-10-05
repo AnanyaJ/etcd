@@ -1,42 +1,39 @@
 package main
 
-type Continue struct{}
-type Key interface{}
-
 // TODO: propagate panics to caller
 func CreateCoro[In, Out any](
 	f func(in In, wait func(Key), signal func(Key)) Out,
 	in In,
-	onWait func(Key),
-	onSignal func(Key),
-) (resume func() (Out, bool)) {
+) (resume func() (Status, Out)) {
 	cin := make(chan Continue)
-	cout := make(chan Continue)
+	cstatus := make(chan Status)
 	var out Out
 	isDone := false
-	resume = func() (output Out, done bool) {
+	resume = func() (Status, Out) {
 		if isDone {
-			return out, true
+			// already done executing so don't want to wait
+			// for another status
+			return Done{}, out
 		}
+		// unblock function
 		cin <- Continue{}
-		<-cout
-		return out, isDone
+		// pause when it hands back control
+		return <-cstatus, out
 	}
 	wait := func(key Key) {
-		onWait(key)
-		cout <- Continue{}
+		cstatus <- Wait{key: key}
 		<-cin
 	}
 	signal := func(key Key) {
-		onSignal(key)
-		cout <- Continue{}
+		cstatus <- Signal{key: key}
 		<-cin
 	}
 	go func() {
 		<-cin
 		out = f(in, wait, signal)
 		isDone = true
-		cout <- Continue{}
+		// ensure that resume returns when function completes
+		cstatus <- Done{}
 	}()
 	return resume
 }
