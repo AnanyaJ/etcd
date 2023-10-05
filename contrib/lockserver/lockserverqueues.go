@@ -1,16 +1,8 @@
 package main
 
-import "log"
-
-type LockOp struct {
-	opType   int
-	lockName string
-	result   chan bool
-}
-
 type Coro struct {
-	op   *LockOp
-	coro func() (Status, bool)
+	coro   func() (Status, bool)
+	result chan bool
 }
 
 type LockQueue struct {
@@ -19,9 +11,8 @@ type LockQueue struct {
 }
 
 type QueueLockServer struct {
-	locks    map[string]*LockQueue
-	started  chan LockOp
-	runnable []Coro
+	locks   map[string]*LockQueue
+	started chan Coro
 }
 
 // Single-server lock service built using a queue for each lock. This lock server
@@ -29,96 +20,94 @@ type QueueLockServer struct {
 // safely be replicated since it uses coroutines to deterministically schedule
 // the Acquire and Release operations.
 func newQueueLockServer() *QueueLockServer {
-	s := QueueLockServer{locks: make(map[string]*LockQueue), started: make(chan LockOp), runnable: []Coro{}}
+	s := QueueLockServer{locks: make(map[string]*LockQueue), started: make(chan Coro)}
 	go s.schedule()
 	return &s
 }
 
+func (s *QueueLockServer) startOp(apply func(string, func(Key), func(Key)) bool, lockName string) bool {
+	coro := CreateCoro[string, bool](apply, lockName)
+	result := make(chan bool)
+	s.started <- Coro{coro: coro, result: result}
+	return <-result
+}
+
 func (s *QueueLockServer) Acquire(lockName string) {
-	result := make(chan bool)
-	s.started <- LockOp{opType: AcquireOp, lockName: lockName, result: result}
-	<-result
-}
+	acquire := func(lockName string, wait func(Key), signal func(Key)) bool {
+		// locks are unnecessary here because code between wait/signal calls is
+		// executed atomically and there is only one thread applying ops
+		s.addLock(lockName)
 
-func (s *QueueLockServer) Release(lockName string) bool {
-	result := make(chan bool)
-	s.started <- LockOp{opType: ReleaseOp, lockName: lockName, result: result}
-	return <-result
-}
-
-func (s *QueueLockServer) IsLocked(lockName string) bool {
-	result := make(chan bool)
-	s.started <- LockOp{opType: IsLockedOp, lockName: lockName, result: result}
-	return <-result
-}
-
-func (s *QueueLockServer) schedule() {
-	for {
-		op := <-s.started
-		coro := CreateCoro[LockOp, bool](s.apply, op)
-		// new coro is initially the only runnable one
-		s.runnable = append(s.runnable, Coro{op: &op, coro: coro})
-		// resume coros until no coro can make more progress -- ensures
-		// deterministic behavior since timing of ops arriving on
-		// started channel cannot be controlled
-		for len(s.runnable) > 0 {
-			// resume coros in stack order
-			next := s.runnable[len(s.runnable)-1]
-			s.runnable = s.runnable[:len(s.runnable)-1]
-
-			status, output := next.coro()
-			switch status.msgType() {
-			case WaitMsg:
-				s.locks[op.lockName].queue = append(s.locks[op.lockName].queue, next)
-			case SignalMsg:
-				// this coro is still not blocked so add back to runnable stack
-				s.runnable = append(s.runnable, next)
-				queue := s.locks[op.lockName].queue
-				if len(queue) > 0 {
-					// unblock exactly one coro waiting on lock
-					unblocked := queue[0]
-					s.locks[op.lockName].queue = queue[1:]
-					s.runnable = append(s.runnable, unblocked)
-				}
-			case DoneMsg:
-				// inform RPC handler of op completion and result
-				next.op.result <- output
-			}
-		}
-	}
-}
-
-func (s *QueueLockServer) apply(op LockOp, wait func(Key), signal func(Key)) bool {
-	// locks are unnecessary here because code between wait/signal calls is
-	// executed atomically and there is only one thread applying ops
-	switch op.opType {
-	case AcquireOp:
-		s.addLock(op.lockName)
-		lock := s.locks[op.lockName]
-
-		wait(op.lockName)
-		if lock.isLocked {
-			log.Fatalf("Lock %s still held even after waiting \n", op.lockName)
+		lock := s.locks[lockName]
+		for lock.isLocked {
+			wait(lockName)
 		}
 
 		lock.isLocked = true
 		return true
-	case ReleaseOp:
-		s.addLock(op.lockName)
-		lock := s.locks[op.lockName]
+	}
+	s.startOp(acquire, lockName)
+}
+
+func (s *QueueLockServer) Release(lockName string) bool {
+	release := func(lockName string, wait func(Key), signal func(Key)) bool {
+		s.addLock(lockName)
+		lock := s.locks[lockName]
 
 		if !lock.isLocked {
 			return false // lock already free
 		}
 
 		lock.isLocked = false
-		signal(op.lockName)
+		signal(lockName)
 		return true
-	case IsLockedOp:
-		s.addLock(op.lockName)
-		return s.locks[op.lockName].isLocked
 	}
-	return true
+	return s.startOp(release, lockName)
+}
+
+func (s *QueueLockServer) IsLocked(lockName string) bool {
+	isLocked := func(lockName string, wait func(Key), signal func(Key)) bool {
+		s.addLock(lockName)
+		return s.locks[lockName].isLocked
+	}
+	return s.startOp(isLocked, lockName)
+}
+
+func (s *QueueLockServer) schedule() {
+	for {
+		coro := <-s.started
+		// new coro is initially the only runnable one
+		runnable := []Coro{coro}
+		// resume coros until no coro can make more progress -- ensures
+		// deterministic behavior since timing of ops arriving on
+		// started channel cannot be controlled
+		for len(runnable) > 0 {
+			// resume coros in stack order
+			next := runnable[len(runnable)-1]
+			runnable = runnable[:len(runnable)-1]
+
+			status, output := next.coro()
+			switch status.msgType() {
+			case WaitMsg:
+				key := status.(Wait).key.(string)
+				s.locks[key].queue = append(s.locks[key].queue, next)
+			case SignalMsg:
+				// this coro is still not blocked so add back to runnable stack
+				runnable = append(runnable, next)
+				key := status.(Signal).key.(string)
+				queue := s.locks[key].queue
+				if len(queue) > 0 {
+					// unblock exactly one coro waiting on lock
+					unblocked := queue[0]
+					s.locks[key].queue = queue[1:]
+					runnable = append(runnable, unblocked)
+				}
+			case DoneMsg:
+				// inform RPC handler of op completion and result
+				next.result <- output
+			}
+		}
+	}
 }
 
 func (s *QueueLockServer) addLock(lockName string) {
