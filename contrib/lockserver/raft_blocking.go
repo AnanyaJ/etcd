@@ -18,7 +18,7 @@ func newRaftBlockingNode(
 	confChangeC <-chan raftpb.ConfChange,
 	apply func(op []byte, wait func(Key), signal func(Key)) []byte,
 ) <-chan error {
-	commitC, errorC, snapshotterReady := newRaftNode(id, peers, join, getSnapshot, proposeC, confChangeC)
+	commitC, errorC, snapshotterReady := newRaftNode(id, peers, join, getSnapshot, proposeC, confChangeC, false)
 	// TODO: deal with snapshots
 	n := &RaftBlockingNode{commitC, snapshotterReady, apply}
 	go n.applyCommittedOps()

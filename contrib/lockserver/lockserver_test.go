@@ -9,22 +9,31 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"go.etcd.io/raft/v3/raftpb"
 )
 
-func setup() (srv *httptest.Server, cli *http.Client) {
-	var ls LockServer
-	ls = newQueueLockServer()
+func setup() (srv *httptest.Server, cli *http.Client, proposeC chan []byte, confChangeC chan raftpb.ConfChange) {
+	clusters := []string{"http://127.0.0.1:9021"}
+	proposeC = make(chan []byte)
+	confChangeC = make(chan raftpb.ConfChange)
+
+	var ls *QueueLockServer
+	getSnapshot := func() ([]byte, error) { return ls.getSnapshot() }
+	commitC, errorC, snapshotterReady := newRaftNode(1, clusters, false, getSnapshot, proposeC, confChangeC, true)
+
+	ls = newQueueLockServer(<-snapshotterReady, proposeC, commitC, errorC)
 
 	srv = httptest.NewServer(&httpLSAPI{
 		server: ls,
 	})
 
-	// wait server started
+	// wait for server to start
 	<-time.After(time.Second)
 
 	cli = srv.Client()
 
-	return srv, cli
+	return srv, cli, proposeC, confChangeC
 }
 
 func makeRequest(t *testing.T, serverURL string, reqType string, lockName string) *http.Request {
@@ -90,8 +99,10 @@ func checkNumAcquired(t *testing.T, hasAcquired []bool, expected int) {
 }
 
 func TestLockServerNoContention(t *testing.T) {
-	srv, cli := setup()
+	srv, cli, proposeC, confChangeC := setup()
 	defer srv.Close()
+	defer close(proposeC)
+	defer close(confChangeC)
 
 	lock1 := "lock1"
 	lock2 := "lock2"
@@ -128,8 +139,10 @@ func TestLockServerNoContention(t *testing.T) {
 }
 
 func TestLockServerContention(t *testing.T) {
-	srv, cli := setup()
+	srv, cli, proposeC, confChangeC := setup()
 	defer srv.Close()
+	defer close(proposeC)
+	defer close(confChangeC)
 
 	lock1 := "lock1"
 	lock2 := "lock2"
@@ -148,7 +161,7 @@ func TestLockServerContention(t *testing.T) {
 
 	for i := 1; i < numContending-1; i++ {
 		// wait for server to give out the lock
-		<-time.After(100 * time.Millisecond)
+		<-time.After(time.Second)
 
 		checkNumAcquired(t, hasAcquiredLock, i)
 

@@ -16,14 +16,29 @@ package main
 
 import (
 	"flag"
+	"strings"
+
+	"go.etcd.io/raft/v3/raftpb"
 )
 
 func main() {
+	cluster := flag.String("cluster", "http://127.0.0.1:9021", "comma separated cluster peers")
+	id := flag.Int("id", 1, "node ID")
 	lsport := flag.Int("port", 9121, "lock server port")
+	join := flag.Bool("join", false, "join an existing cluster")
 	flag.Parse()
 
-	lockServer := newQueueLockServer()
+	proposeC := make(chan []byte)
+	defer close(proposeC)
+	confChangeC := make(chan raftpb.ConfChange)
+	defer close(confChangeC)
+
+	var lockServer *QueueLockServer
+	getSnapshot := func() ([]byte, error) { return lockServer.getSnapshot() }
+	commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC, false)
+
+	lockServer = newQueueLockServer(<-snapshotterReady, proposeC, commitC, errorC)
 
 	// the key-value http handler will propose updates to raft
-	serveHTTPLSAPI(lockServer, *lsport, make(<-chan struct{}))
+	serveHTTPLSAPI(lockServer, *lsport, confChangeC, errorC)
 }

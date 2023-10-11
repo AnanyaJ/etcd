@@ -19,11 +19,14 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+
+	"go.etcd.io/raft/v3/raftpb"
 )
 
 // Handler for a http based key-value store backed by raft
 type httpLSAPI struct {
-	server LockServer
+	server      LockServer
+	confChangeC chan<- raftpb.ConfChange
 }
 
 func (h *httpLSAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -57,19 +60,60 @@ func (h *httpLSAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			response = "false\n"
 		}
 		w.Write([]byte(string(response)))
+	case http.MethodPost:
+		url, err := io.ReadAll(r.Body)
+		if err != nil {
+			log.Printf("Failed to read on POST (%v)\n", err)
+			http.Error(w, "Failed on POST", http.StatusBadRequest)
+			return
+		}
 
+		nodeID, err := strconv.ParseUint(key[1:], 0, 64)
+		if err != nil {
+			log.Printf("Failed to convert ID for conf change (%v)\n", err)
+			http.Error(w, "Failed on POST", http.StatusBadRequest)
+			return
+		}
+
+		cc := raftpb.ConfChange{
+			Type:    raftpb.ConfChangeAddNode,
+			NodeID:  nodeID,
+			Context: url,
+		}
+		h.confChangeC <- cc
+		// Optimistic that raft will apply the conf change
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodDelete:
+		nodeID, err := strconv.ParseUint(key[1:], 0, 64)
+		if err != nil {
+			log.Printf("Failed to convert ID for conf change (%v)\n", err)
+			http.Error(w, "Failed on DELETE", http.StatusBadRequest)
+			return
+		}
+
+		cc := raftpb.ConfChange{
+			Type:   raftpb.ConfChangeRemoveNode,
+			NodeID: nodeID,
+		}
+		h.confChangeC <- cc
+
+		// Optimistic that raft will apply the conf change
+		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.Header().Set("Allow", http.MethodPut)
+		w.Header().Add("Allow", http.MethodPost)
+		w.Header().Add("Allow", http.MethodDelete)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
 // serveHTTPLSAPI starts a lock server with a GET/PUT API and listens.
-func serveHTTPLSAPI(server LockServer, port int, stop <-chan struct{}) {
+func serveHTTPLSAPI(server LockServer, port int, confChangeC chan<- raftpb.ConfChange, errorC <-chan error) {
 	srv := http.Server{
 		Addr: ":" + strconv.Itoa(port),
 		Handler: &httpLSAPI{
-			server: server,
+			server:      server,
+			confChangeC: confChangeC,
 		},
 	}
 	go func() {
@@ -79,5 +123,8 @@ func serveHTTPLSAPI(server LockServer, port int, stop <-chan struct{}) {
 		log.Printf("Listening on port %d...\n", port)
 	}()
 
-	<-stop
+	// exit when raft goes down
+	if err, ok := <-errorC; ok {
+		log.Fatal(err)
+	}
 }
