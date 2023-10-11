@@ -57,7 +57,9 @@ func newQueueLockServer(snapshotter *snap.Snapshotter, proposeC chan<- []byte, c
 func (s *QueueLockServer) startOp(opType int, lockName string) bool {
 	result := make(chan bool)
 
-	s.mu.Lock() // lock so that each op is assigned a unique op number
+	// assign each op a unique op number so that applier knows which
+	// result channel to signal on
+	s.mu.Lock()
 	opNum := s.nextOpNum
 	s.nextOpNum++
 	s.opResults[opNum] = result
@@ -139,11 +141,15 @@ func (s *QueueLockServer) applyCommits(commitC <-chan *commit, errorC <-chan err
 					}
 				case DoneMsg:
 					// inform RPC handler of op completion and result
-					s.opResults[next.OpNum] <- output
+					resultChan, ok := s.opResults[next.OpNum]
+					if ok {
+						resultChan <- output
+						delete(s.opResults, next.OpNum)
+					}
 				}
 			}
-
 		}
+
 		close(commit.applyDoneC)
 	}
 	if err, ok := <-errorC; ok {
@@ -191,7 +197,7 @@ func (s *QueueLockServer) addLock(lockName string) {
 }
 
 func (s *QueueLockServer) getSnapshot() ([]byte, error) {
-	return []byte{}, nil
+	return nil, nil
 	// return json.Marshal(s.locks)
 }
 

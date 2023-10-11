@@ -16,6 +16,8 @@ hack/tls-setup/certs
 .idea
 *.iml
 /contrib/mixin/manifests
+/contrib/lockserver/lockserver
+/contrib/lockserver/lockserver-*
 /contrib/raftexample/raftexample
 /contrib/raftexample/raftexample-*
 /vendor
