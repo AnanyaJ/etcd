@@ -7,4 +7,6 @@ type LockServer interface {
 	Release(lockName string) bool
 	// Return true iff the lock is currently held.
 	IsLocked(lockName string) bool
+
+	getSnapshot() ([]byte, error)
 }

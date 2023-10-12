@@ -30,3 +30,14 @@ func (signal Signal) msgType() int {
 func (done Done) msgType() int {
 	return DoneMsg
 }
+
+type LockOp struct {
+	OpNum    int
+	OpType   int
+	LockName string
+}
+
+type LockQueue[T any] struct {
+	IsLocked bool
+	Queue    []T
+}

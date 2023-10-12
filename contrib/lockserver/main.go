@@ -33,7 +33,7 @@ func main() {
 	confChangeC := make(chan raftpb.ConfChange)
 	defer close(confChangeC)
 
-	var lockServer *QueueLockServer
+	var lockServer LockServer
 	getSnapshot := func() ([]byte, error) { return lockServer.getSnapshot() }
 	commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC, false)
 
