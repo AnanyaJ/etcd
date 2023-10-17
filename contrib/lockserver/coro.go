@@ -1,7 +1,9 @@
 package main
 
+import "golang.org/x/exp/constraints"
+
 // TODO: propagate panics to caller
-func CreateCoro[In, Out any](
+func CreateCoro[In any, Key constraints.Ordered, Out any](
 	f func(in In, wait func(Key), signal func(Key)) Out,
 	in In,
 ) (resume func() (Status, Out)) {
@@ -21,11 +23,11 @@ func CreateCoro[In, Out any](
 		return <-cstatus, out
 	}
 	wait := func(key Key) {
-		cstatus <- Wait{key: key}
+		cstatus <- Wait[Key]{key: key}
 		<-cin
 	}
 	signal := func(key Key) {
-		cstatus <- Signal{key: key}
+		cstatus <- Signal[Key]{key: key}
 		<-cin
 	}
 	go func() {

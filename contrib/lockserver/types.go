@@ -1,6 +1,6 @@
 package main
 
-type Key interface{}
+import "golang.org/x/exp/constraints"
 
 type Continue struct{}
 
@@ -8,27 +8,32 @@ type Status interface {
 	msgType() int
 }
 
-type Wait struct {
+type Wait[Key constraints.Ordered] struct {
 	key Key
 }
 
-type Signal struct {
+type Signal[Key constraints.Ordered] struct {
 	key Key
 }
 
 type Done struct {
 }
 
-func (wait Wait) msgType() int {
+func (wait Wait[Key]) msgType() int {
 	return WaitMsg
 }
 
-func (signal Signal) msgType() int {
+func (signal Signal[Key]) msgType() int {
 	return SignalMsg
 }
 
 func (done Done) msgType() int {
 	return DoneMsg
+}
+
+type Coro[Result any] struct {
+	OpNum  int
+	Resume func() (Status, Result)
 }
 
 type LockOp struct {

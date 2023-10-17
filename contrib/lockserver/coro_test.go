@@ -58,7 +58,7 @@ func TestCoro(t *testing.T) {
 	}
 }
 
-func f(locks lockpair, wait func(Key), signal func(Key)) error {
+func f(locks lockpair, wait func(int), signal func(int)) error {
 	// acquire first lock
 	for *locks.first == 1 {
 		wait(1)

@@ -9,15 +9,12 @@ import (
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
 )
 
-type Coro struct {
-	OpNum  int
-	Resume func() (Status, bool)
-}
+type LockCoro Coro[bool]
 
 type CoroLockServer struct {
 	mu          sync.Mutex
 	proposeC    chan<- []byte
-	locks       map[string]*LockQueue[Coro]
+	locks       map[string]*LockQueue[LockCoro]
 	nextOpNum   int
 	opResults   map[int]chan bool
 	snapshotter *snap.Snapshotter
@@ -32,7 +29,7 @@ func newCoroLockServer(snapshotter *snap.Snapshotter, proposeC chan<- []byte, co
 	s := &CoroLockServer{
 		mu:          sync.Mutex{},
 		proposeC:    proposeC,
-		locks:       make(map[string]*LockQueue[Coro]),
+		locks:       make(map[string]*LockQueue[LockCoro]),
 		nextOpNum:   0,
 		opResults:   make(map[int]chan bool),
 		snapshotter: snapshotter,
@@ -91,7 +88,7 @@ func (s *CoroLockServer) applyCommits(commitC <-chan *commit, errorC <-chan erro
 				log.Fatalf("lockserver: could not decode message (%v)", err)
 			}
 
-			var apply func(lockName string, wait func(Key), signal func(Key)) bool
+			var apply func(lockName string, wait func(string), signal func(string)) bool
 			switch op.OpType {
 			case AcquireOp:
 				apply = s.acquire
@@ -102,8 +99,8 @@ func (s *CoroLockServer) applyCommits(commitC <-chan *commit, errorC <-chan erro
 			}
 
 			// new coro is initially the only runnable one
-			coro := CreateCoro[string, bool](apply, op.LockName)
-			runnable := []Coro{Coro{OpNum: op.OpNum, Resume: coro}}
+			coro := CreateCoro[string, string, bool](apply, op.LockName)
+			runnable := []LockCoro{LockCoro{OpNum: op.OpNum, Resume: coro}}
 			// resume coros until no coro can make more progress -- ensures
 			// deterministic behavior since timing of ops arriving on
 			// started channel cannot be controlled
@@ -115,13 +112,13 @@ func (s *CoroLockServer) applyCommits(commitC <-chan *commit, errorC <-chan erro
 				status, output := next.Resume()
 				switch status.msgType() {
 				case WaitMsg:
-					key := status.(Wait).key.(string)
+					key := status.(Wait[string]).key
 					lock := s.locks[key]
 					lock.Queue = append(lock.Queue, next)
 				case SignalMsg:
 					// this coro is still not blocked so add back to runnable stack
 					runnable = append(runnable, next)
-					key := status.(Signal).key.(string)
+					key := status.(Signal[string]).key
 					lock := s.locks[key]
 					queue := lock.Queue
 					if len(queue) > 0 {
@@ -148,7 +145,7 @@ func (s *CoroLockServer) applyCommits(commitC <-chan *commit, errorC <-chan erro
 	}
 }
 
-func (s *CoroLockServer) acquire(lockName string, wait func(Key), signal func(Key)) bool {
+func (s *CoroLockServer) acquire(lockName string, wait func(string), signal func(string)) bool {
 	// locks are unnecessary here because code between wait/signal calls is
 	// executed atomically and there is only one thread applying ops
 	s.addLock(lockName)
@@ -162,7 +159,7 @@ func (s *CoroLockServer) acquire(lockName string, wait func(Key), signal func(Ke
 	return true
 }
 
-func (s *CoroLockServer) release(lockName string, wait func(Key), signal func(Key)) bool {
+func (s *CoroLockServer) release(lockName string, wait func(string), signal func(string)) bool {
 	s.addLock(lockName)
 	lock := s.locks[lockName]
 
@@ -175,7 +172,7 @@ func (s *CoroLockServer) release(lockName string, wait func(Key), signal func(Ke
 	return true
 }
 
-func (s *CoroLockServer) isLocked(lockName string, wait func(Key), signal func(Key)) bool {
+func (s *CoroLockServer) isLocked(lockName string, wait func(string), signal func(string)) bool {
 	s.addLock(lockName)
 	return s.locks[lockName].IsLocked
 }
@@ -184,7 +181,7 @@ func (s *CoroLockServer) addLock(lockName string) {
 	if s.locks[lockName] != nil {
 		return // already exists
 	}
-	s.locks[lockName] = &LockQueue[Coro]{Queue: []Coro{}}
+	s.locks[lockName] = &LockQueue[LockCoro]{Queue: []LockCoro{}}
 }
 
 func (s *CoroLockServer) getSnapshot() ([]byte, error) {
