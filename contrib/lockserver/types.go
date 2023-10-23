@@ -46,3 +46,8 @@ type LockQueue[T any] struct {
 	IsLocked bool
 	Queue    []T
 }
+
+type AppliedOp struct {
+	op     []byte
+	result []byte
+}

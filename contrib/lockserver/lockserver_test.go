@@ -18,7 +18,7 @@ func setup() (srv *httptest.Server, cli *http.Client, proposeC chan []byte, conf
 	proposeC = make(chan []byte)
 	confChangeC = make(chan raftpb.ConfChange)
 
-	var ls LockServer
+	var ls LockServerSnapshot
 	getSnapshot := func() ([]byte, error) { return ls.getSnapshot() }
 	commitC, errorC, snapshotterReady := newRaftNode(1, clusters, false, getSnapshot, proposeC, confChangeC, true)
 
