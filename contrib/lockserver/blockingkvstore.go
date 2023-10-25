@@ -11,26 +11,32 @@ type BlockingKVStore[Key constraints.Ordered, Value any] struct {
 	errorC   <-chan error
 	appliedC chan AppliedOp
 
-	applyFunc func(op []byte, get func(Key) Value, put func(Key, Value), wait func(Key), signal func(Key)) []byte
+	applyFunc func(wait func(Key), signal func(Key), args ...interface{}) []byte
 
 	kvstore map[Key]Value
-	queues  Queue[Key]
+	queues  map[Key]Queue[Coro]
 }
 
 func newBlockingKVStore[Key constraints.Ordered, Value any](
 	commitC <-chan *commit,
 	errorC <-chan error,
-	applyFunc func(op []byte, get func(Key) Value, put func(Key, Value), wait func(Key), signal func(Key)) []byte,
+	apply func(op []byte, get func(Key) Value, put func(Key, Value), wait func(Key), signal func(Key)) []byte,
 ) <-chan AppliedOp {
 	var kv *BlockingKVStore[Key, Value]
 	appliedC := make(chan AppliedOp)
+	applyFunc := func(wait func(Key), signal func(Key), args ...interface{}) []byte {
+		op := args[0].([]byte)
+		get := args[1].(func(Key) Value)
+		put := args[2].(func(Key, Value))
+		return apply(op, get, put, wait, signal)
+	}
 	kv = &BlockingKVStore[Key, Value]{
 		commitC:   commitC,
 		errorC:    errorC,
 		appliedC:  appliedC,
 		applyFunc: applyFunc,
 		kvstore:   make(map[Key]Value),
-		queues:    make(map[Key][]BlockingCoro),
+		queues:    make(map[Key]Queue[Coro]),
 	}
 	go kv.applyCommits()
 	return appliedC
@@ -54,8 +60,8 @@ func (kv *BlockingKVStore[Key, Value]) applyCommits() {
 
 		for _, data := range commit.data {
 			// new coro is initially the only runnable one
-			coro := CreateKVCoro[[]byte, []byte, Key, Value](kv.applyFunc, data, kv.get, kv.put)
-			runnable := []BlockingCoro{BlockingCoro{OpData: data, Resume: coro}}
+			coro := CreateCoro[Key, []byte](kv.applyFunc, data, kv.get, kv.put)
+			runnable := []Coro{Coro{OpData: data, Resume: coro}}
 			// resume coros until no coro can make more progress -- ensures
 			// deterministic behavior since timing of ops arriving on
 			// started channel cannot be controlled

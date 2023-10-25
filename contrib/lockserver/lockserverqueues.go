@@ -1,21 +1,16 @@
 package main
 
 import (
-	"bytes"
-	"encoding/gob"
 	"encoding/json"
 	"log"
-	"sync"
 
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
 )
 
 type QueueLockServer struct {
-	mu          sync.Mutex
 	proposeC    chan<- []byte
+	opManager   *OpManager
 	locks       map[string]*LockQueue[LockOp]
-	nextOpNum   int
-	opResults   map[int]chan bool
 	snapshotter *snap.Snapshotter
 }
 
@@ -26,11 +21,9 @@ type QueueLockServer struct {
 // supports snapshotting.
 func newQueueLockServer(snapshotter *snap.Snapshotter, proposeC chan<- []byte, commitC <-chan *commit, errorC <-chan error) *QueueLockServer {
 	s := &QueueLockServer{
-		mu:          sync.Mutex{},
 		proposeC:    proposeC,
+		opManager:   newOpManager(),
 		locks:       make(map[string]*LockQueue[LockOp]),
-		nextOpNum:   0,
-		opResults:   make(map[int]chan bool),
 		snapshotter: snapshotter,
 	}
 	s.loadSnapshot()
@@ -40,23 +33,8 @@ func newQueueLockServer(snapshotter *snap.Snapshotter, proposeC chan<- []byte, c
 }
 
 func (s *QueueLockServer) startOp(opType int, lockName string) bool {
-	result := make(chan bool)
-
-	// assign each op a unique op number so that applier knows which
-	// result channel to signal on
-	s.mu.Lock()
-	opNum := s.nextOpNum
-	s.nextOpNum++
-	s.opResults[opNum] = result
-	s.mu.Unlock()
-
-	op := LockOp{OpNum: opNum, OpType: opType, LockName: lockName}
-
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(op); err != nil {
-		log.Fatal(err)
-	}
-	s.proposeC <- buf.Bytes()
+	op, result := s.opManager.addOp(opType, lockName)
+	s.proposeC <- op.marshal()
 	return <-result
 }
 
@@ -81,12 +59,7 @@ func (s *QueueLockServer) applyCommits(commitC <-chan *commit, errorC <-chan err
 		}
 
 		for _, data := range commit.data {
-			var op LockOp
-			dec := gob.NewDecoder(bytes.NewBuffer(data))
-			if err := dec.Decode(&op); err != nil {
-				log.Fatalf("lockserver: could not decode message (%v)", err)
-			}
-
+			op := lockOpFromBytes(data)
 			s.addLock(op.LockName)
 			lock := s.locks[op.LockName]
 
@@ -96,25 +69,25 @@ func (s *QueueLockServer) applyCommits(commitC <-chan *commit, errorC <-chan err
 					lock.Queue = append(lock.Queue, op)
 				} else {
 					lock.IsLocked = true
-					s.returnResult(op, true)
+					s.opManager.reportOpFinished(op.OpNum, true)
 				}
 			case ReleaseOp:
 				if !lock.IsLocked {
-					s.returnResult(op, false) // lock already free
+					s.opManager.reportOpFinished(op.OpNum, false) // lock already free
 				}
 
 				if len(lock.Queue) > 0 {
 					// pass lock to next waiting op
 					unblocked := lock.Queue[0]
 					lock.Queue = lock.Queue[1:]
-					s.returnResult(unblocked, true)
+					s.opManager.reportOpFinished(unblocked.OpNum, true)
 				} else {
 					lock.IsLocked = false
 				}
 
-				s.returnResult(op, true)
+				s.opManager.reportOpFinished(op.OpNum, true)
 			case IsLockedOp:
-				s.returnResult(op, lock.IsLocked)
+				s.opManager.reportOpFinished(op.OpNum, lock.IsLocked)
 			}
 		}
 
@@ -122,14 +95,6 @@ func (s *QueueLockServer) applyCommits(commitC <-chan *commit, errorC <-chan err
 	}
 	if err, ok := <-errorC; ok {
 		log.Fatal(err)
-	}
-}
-
-func (s *QueueLockServer) returnResult(op LockOp, result bool) {
-	resultChan, ok := s.opResults[op.OpNum]
-	if ok { // this replica is responsible for delivering result
-		resultChan <- result
-		delete(s.opResults, op.OpNum)
 	}
 }
 

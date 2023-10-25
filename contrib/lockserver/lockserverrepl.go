@@ -1,50 +1,25 @@
 package main
 
-import (
-	"encoding/json"
-	"log"
-	"sync"
-)
-
 type LockServerRepl struct {
-	proposeC chan []byte
-	appliedC <-chan AppliedOp
-
-	mu        sync.Mutex
-	nextOpNum int
-	opResults map[int]chan bool
+	proposeC  chan []byte
+	opManager *OpManager
+	appliedC  <-chan AppliedOp
 }
 
 func newReplLockServer(proposeC chan []byte, appliedC <-chan AppliedOp) *LockServerRepl {
 	s := &LockServerRepl{
 		proposeC:  proposeC,
+		opManager: newOpManager(),
 		appliedC:  appliedC,
-		mu:        sync.Mutex{},
-		opResults: make(map[int]chan bool),
 	}
 	go s.processApplied()
 	return s
 }
 
 // Propose op that some RPC handler wants to replicate
-func (s *LockServerRepl) startOp(OpType int, lockName string) bool {
-	result := make(chan bool)
-
-	// assign each op a unique op number so that applier knows which
-	// result channel to signal on
-	s.mu.Lock()
-	opNum := s.nextOpNum
-	s.nextOpNum++
-	s.opResults[opNum] = result
-	s.mu.Unlock()
-
-	op := LockOp{OpNum: opNum, OpType: OpType, LockName: lockName}
-
-	data, err := json.Marshal(&op)
-	if err != nil {
-		log.Fatal(err)
-	}
-	s.proposeC <- data
+func (s *LockServerRepl) startOp(opType int, lockName string) bool {
+	op, result := s.opManager.addOp(opType, lockName)
+	s.proposeC <- op.marshal()
 	return <-result
 }
 
@@ -61,25 +36,11 @@ func (s *LockServerRepl) IsLocked(lockName string) bool {
 }
 
 func (s *LockServerRepl) processApplied() {
-	// ops that been executed to completion by blocking Raft
+	// ops that been executed to completion
 	for appliedOp := range s.appliedC {
-		op := LockOp{}
-		err := json.Unmarshal(appliedOp.op, &op)
-		if err != nil {
-			log.Fatalf("Failed to unmarshal applied op")
-		}
-
-		// inform RPC handler of op completion and result
-		resultChan, ok := s.opResults[op.OpNum]
-		if ok {
-			var res bool
-			err := json.Unmarshal(appliedOp.result, &res)
-			if err != nil {
-				log.Fatalf("Failed to unmarshal result of applied op")
-			}
-			resultChan <- res
-			delete(s.opResults, op.OpNum)
-		}
+		op := lockOpFromBytes(appliedOp.op)
+		result := boolFromBytes(appliedOp.result)
+		s.opManager.reportOpFinished(op.OpNum, result)
 	}
 }
 
@@ -89,11 +50,7 @@ func (s *LockServerRepl) apply(
 	wait func(string),
 	signal func(string),
 ) []byte {
-	op := LockOp{}
-	err := json.Unmarshal(data, &op)
-	if err != nil {
-		log.Fatalf("Apply failed to unmarshal op %v: %v \n", data, err)
-	}
+	op := lockOpFromBytes(data)
 
 	// access functions to read and write lock state
 	// note: uses provided access callback instead of directly modifying lock state
@@ -119,9 +76,5 @@ func (s *LockServerRepl) apply(
 		returnVal = isLocked()
 	}
 
-	ret, err := json.Marshal(returnVal)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return ret
+	return marshal(returnVal)
 }

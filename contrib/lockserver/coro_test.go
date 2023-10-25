@@ -5,17 +5,11 @@ import (
 	"time"
 )
 
-type lockpair struct {
-	first  *int
-	second *int
-}
-
 func TestCoro(t *testing.T) {
 	var first, second int
-	locks := lockpair{first: &first, second: &second}
 
-	coro1 := CreateCoro(f, locks)
-	coro2 := CreateCoro(f, locks)
+	coro1 := CreateCoro(f, &first, &second)
+	coro2 := CreateCoro(f, &first, &second)
 
 	status, err := coro1()
 	if status.msgType() != SignalMsg || err != nil {
@@ -58,29 +52,32 @@ func TestCoro(t *testing.T) {
 	}
 }
 
-func f(locks lockpair, wait func(int), signal func(int)) error {
+func f(wait func(int), signal func(int), args ...interface{}) error {
+	first := args[0].(*int)
+	second := args[1].(*int)
+
 	// acquire first lock
-	for *locks.first == 1 {
+	for *first == 1 {
 		wait(1)
 	}
 	time.Sleep(100 * time.Millisecond)
 	// other coro should not be able to make progress while we sleep
 	// so assume we can still acquire lock
-	*locks.first = 1
+	*first = 1
 
 	// acquire second lock
-	for *locks.second == 1 {
+	for *second == 1 {
 		wait(2)
 	}
 	time.Sleep(100 * time.Millisecond)
-	*locks.second = 1
+	*second = 1
 
 	// release first lock
-	*locks.first = 0
+	*first = 0
 	signal(1)
 
 	// release second lock
-	*locks.second = 0
+	*second = 0
 	signal(2)
 
 	return nil

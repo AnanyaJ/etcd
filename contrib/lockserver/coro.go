@@ -2,10 +2,38 @@ package main
 
 import "golang.org/x/exp/constraints"
 
-// TODO: propagate panics to caller
-func CreateCoro[In any, Key constraints.Ordered, Out any](
-	f func(in In, wait func(Key), signal func(Key)) Out,
-	in In,
+type Continue struct{}
+
+type Status interface {
+	msgType() int
+}
+
+type Wait[Key constraints.Ordered] struct {
+	key Key
+}
+
+type Signal[Key constraints.Ordered] struct {
+	key Key
+}
+
+type Done struct {
+}
+
+func (wait Wait[Key]) msgType() int {
+	return WaitMsg
+}
+
+func (signal Signal[Key]) msgType() int {
+	return SignalMsg
+}
+
+func (done Done) msgType() int {
+	return DoneMsg
+}
+
+func CreateCoro[Key constraints.Ordered, Out any](
+	f func(wait func(Key), signal func(Key), args ...interface{}) Out,
+	args ...interface{},
 ) (resume func() (Status, Out)) {
 	cin := make(chan Continue)
 	cstatus := make(chan Status)
@@ -32,7 +60,7 @@ func CreateCoro[In any, Key constraints.Ordered, Out any](
 	}
 	go func() {
 		<-cin
-		out = f(in, wait, signal)
+		out = f(wait, signal, args...)
 		isDone = true
 		// ensure that resume returns when function completes
 		cstatus <- Done{}

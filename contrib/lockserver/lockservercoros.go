@@ -1,22 +1,20 @@
 package main
 
 import (
-	"bytes"
-	"encoding/gob"
 	"log"
-	"sync"
 
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
 )
 
-type LockCoro Coro[bool]
+type LockCoro struct {
+	OpNum  int
+	Resume func() (Status, bool)
+}
 
 type CoroLockServer struct {
-	mu          sync.Mutex
 	proposeC    chan<- []byte
+	opManager   *OpManager
 	locks       map[string]*LockQueue[LockCoro]
-	nextOpNum   int
-	opResults   map[int]chan bool
 	snapshotter *snap.Snapshotter
 }
 
@@ -27,11 +25,9 @@ type CoroLockServer struct {
 // on disk, but does not support snapshotting yet.
 func newCoroLockServer(snapshotter *snap.Snapshotter, proposeC chan<- []byte, commitC <-chan *commit, errorC <-chan error) *CoroLockServer {
 	s := &CoroLockServer{
-		mu:          sync.Mutex{},
 		proposeC:    proposeC,
+		opManager:   newOpManager(),
 		locks:       make(map[string]*LockQueue[LockCoro]),
-		nextOpNum:   0,
-		opResults:   make(map[int]chan bool),
 		snapshotter: snapshotter,
 	}
 	s.loadSnapshot()
@@ -41,23 +37,8 @@ func newCoroLockServer(snapshotter *snap.Snapshotter, proposeC chan<- []byte, co
 }
 
 func (s *CoroLockServer) startOp(opType int, lockName string) bool {
-	result := make(chan bool)
-
-	// assign each op a unique op number so that applier knows which
-	// result channel to signal on
-	s.mu.Lock()
-	opNum := s.nextOpNum
-	s.nextOpNum++
-	s.opResults[opNum] = result
-	s.mu.Unlock()
-
-	op := LockOp{OpNum: opNum, OpType: opType, LockName: lockName}
-
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(op); err != nil {
-		log.Fatal(err)
-	}
-	s.proposeC <- buf.Bytes()
+	op, result := s.opManager.addOp(opType, lockName)
+	s.proposeC <- op.marshal()
 	return <-result
 }
 
@@ -82,11 +63,7 @@ func (s *CoroLockServer) applyCommits(commitC <-chan *commit, errorC <-chan erro
 		}
 
 		for _, data := range commit.data {
-			var op LockOp
-			dec := gob.NewDecoder(bytes.NewBuffer(data))
-			if err := dec.Decode(&op); err != nil {
-				log.Fatalf("lockserver: could not decode message (%v)", err)
-			}
+			op := lockOpFromBytes(data)
 
 			var apply func(lockName string, wait func(string), signal func(string)) bool
 			switch op.OpType {
@@ -97,9 +74,13 @@ func (s *CoroLockServer) applyCommits(commitC <-chan *commit, errorC <-chan erro
 			case IsLockedOp:
 				apply = s.isLocked
 			}
+			applyFunc := func(wait func(string), signal func(string), args ...interface{}) bool {
+				lockName := args[0].(string)
+				return apply(lockName, wait, signal)
+			}
 
 			// new coro is initially the only runnable one
-			coro := CreateCoro[string, string, bool](apply, op.LockName)
+			coro := CreateCoro[string, bool](applyFunc, op.LockName)
 			runnable := []LockCoro{LockCoro{OpNum: op.OpNum, Resume: coro}}
 			// resume coros until no coro can make more progress -- ensures
 			// deterministic behavior since timing of ops arriving on
@@ -109,7 +90,7 @@ func (s *CoroLockServer) applyCommits(commitC <-chan *commit, errorC <-chan erro
 				next := runnable[len(runnable)-1]
 				runnable = runnable[:len(runnable)-1]
 
-				status, output := next.Resume()
+				status, result := next.Resume()
 				switch status.msgType() {
 				case WaitMsg:
 					key := status.(Wait[string]).key
@@ -128,12 +109,7 @@ func (s *CoroLockServer) applyCommits(commitC <-chan *commit, errorC <-chan erro
 						runnable = append(runnable, unblocked)
 					}
 				case DoneMsg:
-					// inform RPC handler of op completion and result
-					resultChan, ok := s.opResults[next.OpNum]
-					if ok {
-						resultChan <- output
-						delete(s.opResults, next.OpNum)
-					}
+					s.opManager.reportOpFinished(next.OpNum, result)
 				}
 			}
 		}
@@ -186,7 +162,6 @@ func (s *CoroLockServer) addLock(lockName string) {
 
 func (s *CoroLockServer) getSnapshot() ([]byte, error) {
 	return nil, nil
-	// return json.Marshal(s.locks)
 }
 
 func (s *CoroLockServer) loadSnapshot() {
@@ -206,10 +181,5 @@ func (s *CoroLockServer) loadSnapshot() {
 }
 
 func (s *CoroLockServer) recoverFromSnapshot(snapshot []byte) error {
-	// var locks map[string]*LockQueue
-	// if err := json.Unmarshal(snapshot, &locks); err != nil {
-	// 	return err
-	// }
-	// s.locks = locks
 	return nil
 }
