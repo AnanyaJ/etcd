@@ -47,6 +47,13 @@ type LockQueue[T any] struct {
 	Queue    []T
 }
 
+type BlockingCoro struct {
+	OpData []byte
+	Resume func() (Status, []byte)
+}
+
+type Queue[Key constraints.Ordered] map[Key][]BlockingCoro
+
 type AppliedOp struct {
 	op     []byte
 	result []byte

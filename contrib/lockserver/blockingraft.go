@@ -6,46 +6,50 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
-type BlockingKVStore[Key constraints.Ordered, Value any] struct {
+type RSMState[In, Out any] interface {
+	access(in In) Out
+}
+
+type BlockingRaftNode[Key constraints.Ordered, In, Out any] struct {
 	commitC  <-chan *commit
 	errorC   <-chan error
 	appliedC chan AppliedOp
 
-	applyFunc func(op []byte, get func(Key) Value, put func(Key, Value), wait func(Key), signal func(Key)) []byte
+	state     RSMState[In, Out]
+	applyFunc func(op []byte, access func(In) Out, wait func(Key), signal func(Key)) []byte
 
-	kvstore map[Key]Value
-	queues  Queue[Key]
+	queues Queue[Key]
 }
 
-func newBlockingKVStore[Key constraints.Ordered, Value any](
+func newBlockingRaftNode[Key constraints.Ordered, In, Out any](
 	commitC <-chan *commit,
 	errorC <-chan error,
-	applyFunc func(op []byte, get func(Key) Value, put func(Key, Value), wait func(Key), signal func(Key)) []byte,
+	state RSMState[In, Out],
+	applyFunc func(op []byte, access func(In) Out, wait func(Key), signal func(Key)) []byte,
 ) <-chan AppliedOp {
-	var kv *BlockingKVStore[Key, Value]
+	var n *BlockingRaftNode[Key, In, Out]
 	appliedC := make(chan AppliedOp)
-	kv = &BlockingKVStore[Key, Value]{
+	n = &BlockingRaftNode[Key, In, Out]{
 		commitC:   commitC,
 		errorC:    errorC,
 		appliedC:  appliedC,
+		state:     state,
 		applyFunc: applyFunc,
-		kvstore:   make(map[Key]Value),
 		queues:    make(map[Key][]BlockingCoro),
 	}
-	go kv.applyCommits()
+	go n.applyCommits()
 	return appliedC
 }
 
-func (kv *BlockingKVStore[Key, Value]) get(key Key) Value {
-	return kv.kvstore[key]
+func (n *BlockingRaftNode[Key, In, Out]) access(in In) Out {
+	// TODO: control accesses on replay by returning
+	// saved access outputs directly instead of actually
+	// calling access() on state
+	return n.state.access(in)
 }
 
-func (kv *BlockingKVStore[Key, Value]) put(key Key, val Value) {
-	kv.kvstore[key] = val
-}
-
-func (kv *BlockingKVStore[Key, Value]) applyCommits() {
-	for commit := range kv.commitC {
+func (n *BlockingRaftNode[Key, In, Out]) applyCommits() {
+	for commit := range n.commitC {
 		if commit == nil {
 			// signaled to load snapshot
 			// TODO: load snapshot
@@ -54,7 +58,7 @@ func (kv *BlockingKVStore[Key, Value]) applyCommits() {
 
 		for _, data := range commit.data {
 			// new coro is initially the only runnable one
-			coro := CreateKVCoro[[]byte, []byte, Key, Value](kv.applyFunc, data, kv.get, kv.put)
+			coro := CreateBlockingCoro[[]byte, []byte, Key, In, Out](n.applyFunc, data, n.access)
 			runnable := []BlockingCoro{BlockingCoro{OpData: data, Resume: coro}}
 			// resume coros until no coro can make more progress -- ensures
 			// deterministic behavior since timing of ops arriving on
@@ -68,33 +72,33 @@ func (kv *BlockingKVStore[Key, Value]) applyCommits() {
 				switch status.msgType() {
 				case WaitMsg:
 					key := status.(Wait[Key]).key
-					kv.queues[key] = append(kv.queues[key], next)
+					n.queues[key] = append(n.queues[key], next)
 				case SignalMsg:
 					// this coro is still not blocked so add back to runnable stack
 					runnable = append(runnable, next)
 					key := status.(Signal[Key]).key
-					queue := kv.queues[key]
+					queue := n.queues[key]
 					if len(queue) > 0 {
 						// unblock exactly one coro waiting on key
 						unblocked := queue[0]
-						kv.queues[key] = queue[1:]
+						n.queues[key] = queue[1:]
 						runnable = append(runnable, unblocked)
 					}
 				case DoneMsg:
 					// inform client that op has completed
-					kv.appliedC <- AppliedOp{op: next.OpData, result: result}
+					n.appliedC <- AppliedOp{op: next.OpData, result: result}
 				}
 			}
 		}
 
 		close(commit.applyDoneC)
 	}
-	if err, ok := <-kv.errorC; ok {
+	if err, ok := <-n.errorC; ok {
 		log.Fatal(err)
 	}
 }
 
-func (kv *BlockingKVStore[Key, Value]) getSnapshot() ([]byte, error) {
+func (n *BlockingRaftNode[Key, In, Out]) getSnapshot() ([]byte, error) {
 	// TODO: implement
 	return nil, nil
 }

@@ -37,10 +37,11 @@ func main() {
 	commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC, false)
 	<-snapshotterReady
 
-	var lockServer *LockServerKV
-	appliedC := newBlockingKVStore[string, bool](commitC, errorC, lockServer.apply)
+	var lockServer *LockServerRepl
+	lockState := make(KVState)
+	appliedC := newBlockingRaftNode[string, KVOp, bool](commitC, errorC, lockState, lockServer.apply)
 
-	lockServer = newKVLockServer(proposeC, appliedC)
+	lockServer = newReplLockServer(proposeC, appliedC)
 
 	// the key-value http handler will propose updates to raft
 	serveHTTPLSAPI(lockServer, *lsport, confChangeC, errorC)
