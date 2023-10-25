@@ -31,8 +31,7 @@ func newBlockingRaftNode[Key constraints.Ordered, In, Out any](
 	appliedC := make(chan AppliedOp)
 	applyFunc := func(wait func(Key), signal func(Key), args ...interface{}) []byte {
 		op := args[0].([]byte)
-		access := args[1].(func(In) Out)
-		return apply(op, access, wait, signal)
+		return apply(op, n.access, wait, signal)
 	}
 	n = &BlockingRaftNode[Key, In, Out]{
 		commitC:   commitC,
@@ -63,7 +62,7 @@ func (n *BlockingRaftNode[Key, In, Out]) applyCommits() {
 
 		for _, data := range commit.data {
 			// new coro is initially the only runnable one
-			coro := CreateCoro[Key, []byte](n.applyFunc, data, n.access)
+			coro := CreateCoro[Key, []byte](n.applyFunc, data)
 			runnable := []Coro{Coro{OpData: data, Resume: coro}}
 			// resume coros until no coro can make more progress -- ensures
 			// deterministic behavior since timing of ops arriving on
