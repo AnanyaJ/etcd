@@ -22,6 +22,18 @@ func decode(data []byte, x any) error {
 	return err
 }
 
+func equal(first []byte, second []byte) bool {
+	if len(first) != len(second) {
+		return false
+	}
+	for i, x := range first {
+		if x != second[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func marshal(b bool) []byte {
 	ret, err := json.Marshal(b)
 	if err != nil {

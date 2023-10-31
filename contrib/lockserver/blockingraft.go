@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
@@ -58,6 +59,7 @@ func newBlockingRaftNode[Key constraints.Ordered, In, Out any](
 ) *BlockingRaftNode[Key, In, Out] {
 	var n *BlockingRaftNode[Key, In, Out]
 	appliedC := make(chan AppliedOp)
+	// convert apply function into generic coroutine function
 	applyFunc := func(wait func(Key), signal func(Key), args ...interface{}) []byte {
 		op := args[0].([]byte)
 		return apply(op, n.access, wait, signal)
@@ -77,35 +79,33 @@ func newBlockingRaftNode[Key constraints.Ordered, In, Out any](
 }
 
 func (n *BlockingRaftNode[Key, In, Out]) access(in In) Out {
+	// coroutine corresponding to this access
 	coro := n.currentlyExecuting
 	var out Out
 	if n.replaying {
-		// control accesses by returning saved access outputs directly instead of
-		// actually calling access() on state
+		// return saved access output instead of actually reading/modifying RSM state
+		// to ensure that coroutine replay matches original execution
 		if len(coro.Accesses) == 0 {
 			log.Fatalf("Failed to recover partially executed operation during replay (could not find access)")
 		}
 		access := coro.Accesses[0]
 		coro.Accesses = coro.Accesses[1:]
 
-		// verify that access input is same as given input
+		// verify that next expected input is same as given input
 		inBytes, err := encode(in)
 		if err != nil {
 			log.Fatalf("Could not encode access input: ", err)
 		}
-		if len(inBytes) != len(access.In) {
-			log.Fatalf("Access input does not match expected input on replay")
-		}
-		for i, b := range inBytes {
-			if access.In[i] != b {
-				log.Fatalf("Access input does not match expected input on replay")
-			}
+		if !equal(inBytes, access.In) {
+			log.Fatalf("Access input %v does not match expected input on replay\n", in)
 		}
 
 		out = access.Out
 	} else {
 		out = n.state.access(in)
-		// remember access
+
+		// remember access in case we need to replay
+		fmt.Println("access: ", in)
 		inBytes, err := encode(in)
 		if err != nil {
 			log.Fatalf("Could not encode access input: ", err)
@@ -136,6 +136,7 @@ func (n *BlockingRaftNode[Key, In, Out]) applyCommits() {
 				runnable = runnable[:len(runnable)-1]
 
 				n.currentlyExecuting = &next
+				// track how far into execution each coro is
 				next.NumResumes++
 				status, result := next.Resume()
 
@@ -169,15 +170,18 @@ func (n *BlockingRaftNode[Key, In, Out]) applyCommits() {
 }
 
 func (n *BlockingRaftNode[Key, In, Out]) getSnapshot() ([]byte, error) {
-	partialOpQueues := make(map[Key]Queue[PartialOp[Out]])
+	// store queues of partially completed operations
+	queues := make(map[Key]Queue[PartialOp[Out]])
 	for key, ops := range n.queues {
 		partialOps := Queue[PartialOp[Out]]{}
 		for _, op := range ops {
+			// save everything except actual coroutine which cannot be serialized
 			partialOps = append(partialOps, PartialOp[Out]{op.OpData, op.Accesses, op.NumResumes})
 		}
-		partialOpQueues[key] = partialOps
+		queues[key] = partialOps
 	}
-	snapshot := Snapshot[Key, In, Out]{n.state, partialOpQueues}
+	// also save application's RSM state
+	snapshot := Snapshot[Key, In, Out]{n.state, queues}
 	return encode(snapshot)
 }
 
@@ -202,15 +206,19 @@ func (n *BlockingRaftNode[Key, In, Out]) recoverFromSnapshot(data []byte) error 
 		return err
 	}
 
+	// restore application's RSM state
 	n.state = snapshot.State
 
+	// replay partial ops and reconstruct wait queues
 	n.replaying = true
 	n.queues = map[Key]Queue[CoroWithAccesses[Out]]{}
 	for key, partialOps := range snapshot.Queues {
 		ops := Queue[CoroWithAccesses[Out]]{}
 		for _, partialOp := range partialOps {
+			// create new version of coroutine
 			resume := CreateCoro[Key, []byte](n.applyFunc, partialOp.OpData)
 			coro := CoroWithAccesses[Out]{partialOp.OpData, resume, partialOp.Accesses, partialOp.NumResumes}
+			// re-run coroutine until it reaches point at time of snapshot
 			for i := 0; i < partialOp.NumResumes; i++ {
 				n.currentlyExecuting = &coro
 				coro.Resume()
