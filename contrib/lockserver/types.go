@@ -7,11 +7,6 @@ type LockQueue[T any] struct {
 	Queue    Queue[T]
 }
 
-type Coro struct {
-	OpData []byte
-	Resume func() (Status, []byte)
-}
-
 type AppliedOp struct {
 	op     []byte
 	result []byte

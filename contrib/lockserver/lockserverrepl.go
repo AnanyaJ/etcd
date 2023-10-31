@@ -55,8 +55,8 @@ func (s *LockServerRepl) apply(
 	// access functions to read and write lock state
 	// note: uses provided access callback instead of directly modifying lock state
 	// to allow for correct replay after snapshotting
-	isLocked := func() bool { return access(KVOp{opType: GetOp, key: op.LockName}) }
-	setLocked := func(val bool) { access(KVOp{opType: PutOp, key: op.LockName, val: val}) }
+	isLocked := func() bool { return access(KVOp{OpType: GetOp, Key: op.LockName}) }
+	setLocked := func(val bool) { access(KVOp{OpType: PutOp, Key: op.LockName, Val: val}) }
 
 	var returnVal bool
 	switch op.OpType {

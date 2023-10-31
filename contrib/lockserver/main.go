@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/gob"
 	"flag"
 	"strings"
 
@@ -35,8 +36,11 @@ func main() {
 	confChangeC := make(chan raftpb.ConfChange)
 	defer close(confChangeC)
 
-	// TODO: support snapshots
+	var blockingRaftNode *BlockingRaftNode[string, KVOp, bool]
 	getSnapshot := func() ([]byte, error) { return nil, nil }
+	if *impl == "blockingraft" {
+		getSnapshot = func() ([]byte, error) { return blockingRaftNode.getSnapshot() }
+	}
 	commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC, *clearLog)
 	snapshotter := <-snapshotterReady
 
@@ -56,10 +60,11 @@ func main() {
 		kvLockServer = newKVLockServer(proposeC, appliedC)
 		lockServer = kvLockServer
 	case "blockingraft":
+		gob.Register(KVState{})
 		lockState := make(KVState)
 		var replLockServer *LockServerRepl
-		appliedC := newBlockingRaftNode[string, KVOp, bool](commitC, errorC, lockState, replLockServer.apply)
-		replLockServer = newReplLockServer(proposeC, appliedC)
+		blockingRaftNode = newBlockingRaftNode[string, KVOp, bool](snapshotter, commitC, errorC, lockState, replLockServer.apply)
+		replLockServer = newReplLockServer(proposeC, blockingRaftNode.appliedC)
 		lockServer = replLockServer
 	}
 

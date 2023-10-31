@@ -6,6 +6,11 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
+type Coro struct {
+	OpData []byte
+	Resume func() (Status, []byte)
+}
+
 type BlockingKVStore[Key constraints.Ordered, Value any] struct {
 	commitC  <-chan *commit
 	errorC   <-chan error

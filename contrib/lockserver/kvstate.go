@@ -6,16 +6,16 @@ const (
 )
 
 type KVOp struct {
-	opType int
-	key    string
-	val    bool
+	OpType int
+	Key    string
+	Val    bool
 }
 
 type KVState map[string]bool
 
 func (kv KVState) access(op KVOp) bool {
-	if op.opType == PutOp {
-		kv[op.key] = op.val
+	if op.OpType == PutOp {
+		kv[op.Key] = op.Val
 	}
-	return kv[op.key]
+	return kv[op.Key]
 }
