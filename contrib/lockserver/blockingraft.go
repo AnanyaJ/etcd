@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
@@ -105,7 +104,6 @@ func (n *BlockingRaftNode[Key, In, Out]) access(in In) Out {
 		out = n.state.access(in)
 
 		// remember access in case we need to replay
-		fmt.Println("access: ", in)
 		inBytes, err := encode(in)
 		if err != nil {
 			log.Fatalf("Could not encode access input: ", err)
