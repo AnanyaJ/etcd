@@ -182,7 +182,7 @@ func TestSnapshots(t *testing.T) {
 
 	node, proposeC, confChangeC = restart_from_snapshot(t, node, proposeC, confChangeC)
 
-	// release lock1 so that
+	// release lock1 so that op C can finish
 	proposeC <- marshal_optype(t, SnapshotTestOpG)
 
 	doneOp1 := check_result_and_get_op_type(t, <-node.appliedC)

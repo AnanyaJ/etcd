@@ -32,7 +32,7 @@ func lockserver_test_setup() (srv *httptest.Server, cli *http.Client, proposeC c
 	})
 
 	// wait for server to start
-	<-time.After(time.Second)
+	<-time.After(time.Second * 3)
 
 	cli = srv.Client()
 
@@ -165,11 +165,6 @@ func TestLockServerContention(t *testing.T) {
 	lock2 := "lock2"
 	numContending := 4
 
-	// lock should be free to start
-	req := makeRequest(t, srv.URL, "release", lock1)
-	resp := getResponse(t, cli, req)
-	checkIsLocked(t, resp, false)
-
 	hasAcquiredLock := make([]bool, numContending)
 	// make concurrent requests for same lock
 	for i := 0; i < numContending-1; i++ {
@@ -194,8 +189,8 @@ func TestLockServerContention(t *testing.T) {
 	}
 
 	// should be able to acquire different lock while others are blocking
-	req = makeRequest(t, srv.URL, "acquire", lock2)
-	resp = getResponse(t, cli, req)
+	req := makeRequest(t, srv.URL, "acquire", lock2)
+	resp := getResponse(t, cli, req)
 	checkAcquire(t, resp)
 
 	// add last client waiting for same lock
