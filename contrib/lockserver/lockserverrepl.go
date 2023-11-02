@@ -17,21 +17,21 @@ func newReplLockServer(proposeC chan []byte, appliedC <-chan AppliedOp) *LockSer
 }
 
 // Propose op that some RPC handler wants to replicate
-func (s *LockServerRepl) startOp(opType int, lockName string, opNum int) bool {
+func (s *LockServerRepl) startOp(opType int, lockName string, opNum int64) bool {
 	op, result := s.opManager.addOp(opType, lockName, opNum)
 	s.proposeC <- op.marshal()
 	return <-result
 }
 
-func (s *LockServerRepl) Acquire(lockName string, opNum int) {
+func (s *LockServerRepl) Acquire(lockName string, opNum int64) {
 	s.startOp(AcquireOp, lockName, opNum)
 }
 
-func (s *LockServerRepl) Release(lockName string, opNum int) bool {
+func (s *LockServerRepl) Release(lockName string, opNum int64) bool {
 	return s.startOp(ReleaseOp, lockName, opNum)
 }
 
-func (s *LockServerRepl) IsLocked(lockName string, opNum int) bool {
+func (s *LockServerRepl) IsLocked(lockName string, opNum int64) bool {
 	return s.startOp(IsLockedOp, lockName, opNum)
 }
 

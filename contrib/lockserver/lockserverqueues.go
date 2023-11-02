@@ -32,21 +32,21 @@ func newQueueLockServer(snapshotter *snap.Snapshotter, proposeC chan<- []byte, c
 	return s
 }
 
-func (s *QueueLockServer) startOp(opType int, lockName string, opNum int) bool {
+func (s *QueueLockServer) startOp(opType int, lockName string, opNum int64) bool {
 	op, result := s.opManager.addOp(opType, lockName, opNum)
 	s.proposeC <- op.marshal()
 	return <-result
 }
 
-func (s *QueueLockServer) Acquire(lockName string, opNum int) {
+func (s *QueueLockServer) Acquire(lockName string, opNum int64) {
 	s.startOp(AcquireOp, lockName, opNum)
 }
 
-func (s *QueueLockServer) Release(lockName string, opNum int) bool {
+func (s *QueueLockServer) Release(lockName string, opNum int64) bool {
 	return s.startOp(ReleaseOp, lockName, opNum)
 }
 
-func (s *QueueLockServer) IsLocked(lockName string, opNum int) bool {
+func (s *QueueLockServer) IsLocked(lockName string, opNum int64) bool {
 	return s.startOp(IsLockedOp, lockName, opNum)
 }
 

@@ -7,7 +7,7 @@ import (
 )
 
 type LockCoro struct {
-	OpNum  int
+	OpNum  int64
 	Resume func() (Status, bool)
 }
 
@@ -36,21 +36,21 @@ func newCoroLockServer(snapshotter *snap.Snapshotter, proposeC chan<- []byte, co
 	return s
 }
 
-func (s *CoroLockServer) startOp(opType int, lockName string, opNum int) bool {
+func (s *CoroLockServer) startOp(opType int, lockName string, opNum int64) bool {
 	op, result := s.opManager.addOp(opType, lockName, opNum)
 	s.proposeC <- op.marshal()
 	return <-result
 }
 
-func (s *CoroLockServer) Acquire(lockName string, opNum int) {
+func (s *CoroLockServer) Acquire(lockName string, opNum int64) {
 	s.startOp(AcquireOp, lockName, opNum)
 }
 
-func (s *CoroLockServer) Release(lockName string, opNum int) bool {
+func (s *CoroLockServer) Release(lockName string, opNum int64) bool {
 	return s.startOp(ReleaseOp, lockName, opNum)
 }
 
-func (s *CoroLockServer) IsLocked(lockName string, opNum int) bool {
+func (s *CoroLockServer) IsLocked(lockName string, opNum int64) bool {
 	return s.startOp(IsLockedOp, lockName, opNum)
 }
 

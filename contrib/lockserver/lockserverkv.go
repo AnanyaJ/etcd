@@ -16,21 +16,21 @@ func newKVLockServer(proposeC chan []byte, appliedC <-chan AppliedOp) *LockServe
 	return s
 }
 
-func (s *LockServerKV) startOp(opType int, lockName string, opNum int) bool {
+func (s *LockServerKV) startOp(opType int, lockName string, opNum int64) bool {
 	op, result := s.opManager.addOp(opType, lockName, opNum)
 	s.proposeC <- op.marshal()
 	return <-result
 }
 
-func (s *LockServerKV) Acquire(lockName string, opNum int) {
+func (s *LockServerKV) Acquire(lockName string, opNum int64) {
 	s.startOp(AcquireOp, lockName, opNum)
 }
 
-func (s *LockServerKV) Release(lockName string, opNum int) bool {
+func (s *LockServerKV) Release(lockName string, opNum int64) bool {
 	return s.startOp(ReleaseOp, lockName, opNum)
 }
 
-func (s *LockServerKV) IsLocked(lockName string, opNum int) bool {
+func (s *LockServerKV) IsLocked(lockName string, opNum int64) bool {
 	return s.startOp(IsLockedOp, lockName, opNum)
 }
 

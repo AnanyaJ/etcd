@@ -6,7 +6,7 @@ import (
 )
 
 type LockOp struct {
-	OpNum    int
+	OpNum    int64
 	OpType   int
 	LockName string
 }

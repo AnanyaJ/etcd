@@ -169,11 +169,11 @@ func (n *BlockingRaftNode[Key, In, Out]) loadSnapshot() {
 		return
 	}
 	if err != nil {
-		log.Fatalf("Failed to load snapshot: ", err)
+		log.Fatalf("Failed to load snapshot: %v", err)
 	}
 	if snapshot != nil {
 		if err := n.recoverFromSnapshot(snapshot.Data); err != nil {
-			log.Fatalf("Could not recover from snapshot: ", err)
+			log.Fatalf("Could not recover from snapshot: %v", err)
 		}
 	}
 }

@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,10 +39,20 @@ func setup() (srv *httptest.Server, cli *http.Client, proposeC chan []byte, conf
 	return srv, cli, proposeC, confChangeC
 }
 
+func nrand() int64 {
+	max := big.NewInt(int64(1) << 62)
+	bigx, _ := rand.Int(rand.Reader, max)
+	x := bigx.Int64()
+	return x
+}
+
 func makeRequest(t *testing.T, serverURL string, reqType string, lockName string) *http.Request {
 	url := fmt.Sprintf("%s/%s", serverURL, reqType)
-	body := bytes.NewBufferString(lockName)
-	req, err := http.NewRequest(http.MethodPut, url, body)
+	body, err := json.Marshal(&Request{Lock: lockName, OpNum: nrand()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}

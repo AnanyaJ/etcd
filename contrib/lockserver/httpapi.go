@@ -32,7 +32,7 @@ type httpLSAPI struct {
 
 type Request struct {
 	Lock  string
-	OpNum int
+	OpNum int64
 }
 
 func (h *httpLSAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
