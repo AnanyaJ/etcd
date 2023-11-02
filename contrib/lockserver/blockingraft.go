@@ -42,6 +42,7 @@ type BlockingRaftNode[Key constraints.Ordered, In, Out any] struct {
 
 	currentlyExecuting *CoroWithAccesses[Out]
 	replaying          bool
+	accessNum          int
 }
 
 func newBlockingRaftNode[Key constraints.Ordered, In, Out any](
@@ -82,8 +83,8 @@ func (n *BlockingRaftNode[Key, In, Out]) access(in In) Out {
 		if len(coro.Accesses) == 0 {
 			log.Fatalf("Failed to recover partially executed operation during replay (could not find access)")
 		}
-		access := coro.Accesses[0]
-		coro.Accesses = coro.Accesses[1:]
+		access := coro.Accesses[n.accessNum]
+		n.accessNum++
 		out = access
 	} else {
 		out = n.state.access(in)
@@ -197,8 +198,9 @@ func (n *BlockingRaftNode[Key, In, Out]) recoverFromSnapshot(data []byte) error 
 			resume := CreateCoro[Key, []byte](n.applyFunc, partialOp.OpData)
 			coro := CoroWithAccesses[Out]{partialOp.OpData, resume, partialOp.Accesses, partialOp.NumResumes}
 			// re-run coroutine until it reaches point at time of snapshot
+			n.currentlyExecuting = &coro
+			n.accessNum = 0
 			for i := 0; i < partialOp.NumResumes; i++ {
-				n.currentlyExecuting = &coro
 				coro.Resume()
 			}
 			ops = append(ops, coro)

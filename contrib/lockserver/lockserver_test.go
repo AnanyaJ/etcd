@@ -39,6 +39,14 @@ func lockserver_test_setup() (srv *httptest.Server, cli *http.Client, proposeC c
 	return srv, cli, proposeC, confChangeC
 }
 
+func stop_server(srv *httptest.Server, proposeC chan []byte, confChangeC chan raftpb.ConfChange) {
+	srv.Close()
+	close(proposeC)
+	close(confChangeC)
+	// wait for server to stop
+	<-time.After(time.Second)
+}
+
 func nrand() int64 {
 	max := big.NewInt(int64(1) << 62)
 	bigx, _ := rand.Int(rand.Reader, max)
@@ -113,9 +121,7 @@ func checkNumAcquired(t *testing.T, hasAcquired []bool, expected int) {
 
 func TestLockServerNoContention(t *testing.T) {
 	srv, cli, proposeC, confChangeC := lockserver_test_setup()
-	defer srv.Close()
-	defer close(proposeC)
-	defer close(confChangeC)
+	defer stop_server(srv, proposeC, confChangeC)
 
 	lock1 := "lock1"
 	lock2 := "lock2"
@@ -153,13 +159,16 @@ func TestLockServerNoContention(t *testing.T) {
 
 func TestLockServerContention(t *testing.T) {
 	srv, cli, proposeC, confChangeC := lockserver_test_setup()
-	defer srv.Close()
-	defer close(proposeC)
-	defer close(confChangeC)
+	defer stop_server(srv, proposeC, confChangeC)
 
 	lock1 := "lock1"
 	lock2 := "lock2"
 	numContending := 4
+
+	// lock should be free to start
+	req := makeRequest(t, srv.URL, "release", lock1)
+	resp := getResponse(t, cli, req)
+	checkIsLocked(t, resp, false)
 
 	hasAcquiredLock := make([]bool, numContending)
 	// make concurrent requests for same lock
@@ -185,8 +194,8 @@ func TestLockServerContention(t *testing.T) {
 	}
 
 	// should be able to acquire different lock while others are blocking
-	req := makeRequest(t, srv.URL, "acquire", lock2)
-	resp := getResponse(t, cli, req)
+	req = makeRequest(t, srv.URL, "acquire", lock2)
+	resp = getResponse(t, cli, req)
 	checkAcquire(t, resp)
 
 	// add last client waiting for same lock
