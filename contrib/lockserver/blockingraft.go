@@ -7,15 +7,10 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
-type Access[Out any] struct {
-	In  []byte
-	Out Out
-}
-
 type CoroWithAccesses[Out any] struct {
 	OpData     []byte
 	Resume     func() (Status, []byte)
-	Accesses   []Access[Out]
+	Accesses   []Out
 	NumResumes int
 }
 
@@ -25,7 +20,7 @@ type RSMState[In, Out any] interface {
 
 type PartialOp[Out any] struct {
 	OpData     []byte
-	Accesses   []Access[Out]
+	Accesses   []Out
 	NumResumes int
 }
 
@@ -89,26 +84,11 @@ func (n *BlockingRaftNode[Key, In, Out]) access(in In) Out {
 		}
 		access := coro.Accesses[0]
 		coro.Accesses = coro.Accesses[1:]
-
-		// verify that next expected input is same as given input
-		inBytes, err := encode(in)
-		if err != nil {
-			log.Fatalf("Could not encode access input: ", err)
-		}
-		if !equal(inBytes, access.In) {
-			log.Fatalf("Access input %v does not match expected input on replay\n", in)
-		}
-
-		out = access.Out
+		out = access
 	} else {
 		out = n.state.access(in)
-
 		// remember access in case we need to replay
-		inBytes, err := encode(in)
-		if err != nil {
-			log.Fatalf("Could not encode access input: ", err)
-		}
-		coro.Accesses = append(coro.Accesses, Access[Out]{inBytes, out})
+		coro.Accesses = append(coro.Accesses, out)
 	}
 	return out
 }

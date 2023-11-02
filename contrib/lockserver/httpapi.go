@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
@@ -29,36 +30,46 @@ type httpLSAPI struct {
 	confChangeC chan<- raftpb.ConfChange
 }
 
+type Request struct {
+	Lock  string
+	OpNum int
+}
+
 func (h *httpLSAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := r.RequestURI
 	defer r.Body.Close()
 	switch r.Method {
 	case http.MethodPut:
-		lock, err := io.ReadAll(r.Body)
+		reqBytes, err := io.ReadAll(r.Body)
 		if err != nil {
 			log.Printf("Failed to read on PUT (%v)\n", err)
 			http.Error(w, "Failed on PUT", http.StatusBadRequest)
 			return
 		}
 
-		lockName := string(lock)
-
-		var success bool
-		if key == "/acquire" {
-			h.server.Acquire(lockName)
-			success = true
-		} else if key == "/release" {
-			success = h.server.Release(lockName)
-		} else if key == "/islocked" {
-			success = h.server.IsLocked(lockName)
-		}
-
+		var req Request
 		var response string
-		if success {
-			response = "true\n"
+		err = json.Unmarshal(reqBytes, &req)
+		if err != nil {
+			response = "request failed\n"
 		} else {
-			response = "false\n"
+			var ret bool
+			if key == "/acquire" {
+				h.server.Acquire(req.Lock, req.OpNum)
+				ret = true
+			} else if key == "/release" {
+				ret = h.server.Release(req.Lock, req.OpNum)
+			} else if key == "/islocked" {
+				ret = h.server.IsLocked(req.Lock, req.OpNum)
+			}
+
+			if ret {
+				response = "true\n"
+			} else {
+				response = "false\n"
+			}
 		}
+
 		w.Write([]byte(string(response)))
 	case http.MethodPost:
 		url, err := io.ReadAll(r.Body)
@@ -107,7 +118,7 @@ func (h *httpLSAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// serveHTTPLSAPI starts a lock server with a GET/PUT API and listens.
+// serveHTTPLSAPI starts a Lock server with a GET/PUT API and listens.
 func serveHTTPLSAPI(server LockServer, port int, confChangeC chan<- raftpb.ConfChange, errorC <-chan error) {
 	srv := http.Server{
 		Addr: ":" + strconv.Itoa(port),

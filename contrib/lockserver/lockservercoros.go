@@ -36,22 +36,22 @@ func newCoroLockServer(snapshotter *snap.Snapshotter, proposeC chan<- []byte, co
 	return s
 }
 
-func (s *CoroLockServer) startOp(opType int, lockName string) bool {
-	op, result := s.opManager.addOp(opType, lockName)
+func (s *CoroLockServer) startOp(opType int, lockName string, opNum int) bool {
+	op, result := s.opManager.addOp(opType, lockName, opNum)
 	s.proposeC <- op.marshal()
 	return <-result
 }
 
-func (s *CoroLockServer) Acquire(lockName string) {
-	s.startOp(AcquireOp, lockName)
+func (s *CoroLockServer) Acquire(lockName string, opNum int) {
+	s.startOp(AcquireOp, lockName, opNum)
 }
 
-func (s *CoroLockServer) Release(lockName string) bool {
-	return s.startOp(ReleaseOp, lockName)
+func (s *CoroLockServer) Release(lockName string, opNum int) bool {
+	return s.startOp(ReleaseOp, lockName, opNum)
 }
 
-func (s *CoroLockServer) IsLocked(lockName string) bool {
-	return s.startOp(IsLockedOp, lockName)
+func (s *CoroLockServer) IsLocked(lockName string, opNum int) bool {
+	return s.startOp(IsLockedOp, lockName, opNum)
 }
 
 func (s *CoroLockServer) applyCommits(commitC <-chan *commit, errorC <-chan error) {

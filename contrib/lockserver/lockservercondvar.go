@@ -24,7 +24,7 @@ func newCondVarLockServer() *CondVarLockServer {
 	return &CondVarLockServer{mu: &mu, locks: make(map[string]*lock)}
 }
 
-func (s *CondVarLockServer) Acquire(lockName string) {
+func (s *CondVarLockServer) Acquire(lockName string, opNum int) {
 	s.addLock(lockName)
 
 	lock := s.locks[lockName]
@@ -40,7 +40,7 @@ func (s *CondVarLockServer) Acquire(lockName string) {
 	lock.isLocked = true
 }
 
-func (s *CondVarLockServer) Release(lockName string) bool {
+func (s *CondVarLockServer) Release(lockName string, opNum int) bool {
 	s.addLock(lockName)
 
 	lock := s.locks[lockName]
@@ -56,7 +56,7 @@ func (s *CondVarLockServer) Release(lockName string) bool {
 	return true
 }
 
-func (s *CondVarLockServer) IsLocked(lockName string) bool {
+func (s *CondVarLockServer) IsLocked(lockName string, opNum int) bool {
 	s.addLock(lockName)
 
 	lock := s.locks[lockName]
