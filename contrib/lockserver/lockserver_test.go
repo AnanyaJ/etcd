@@ -16,7 +16,7 @@ import (
 	"go.etcd.io/raft/v3/raftpb"
 )
 
-func setup() (srv *httptest.Server, cli *http.Client, proposeC chan []byte, confChangeC chan raftpb.ConfChange) {
+func lockserver_test_setup() (srv *httptest.Server, cli *http.Client, proposeC chan []byte, confChangeC chan raftpb.ConfChange) {
 	clusters := []string{"http://127.0.0.1:9021"}
 	proposeC = make(chan []byte)
 	confChangeC = make(chan raftpb.ConfChange)
@@ -112,7 +112,7 @@ func checkNumAcquired(t *testing.T, hasAcquired []bool, expected int) {
 }
 
 func TestLockServerNoContention(t *testing.T) {
-	srv, cli, proposeC, confChangeC := setup()
+	srv, cli, proposeC, confChangeC := lockserver_test_setup()
 	defer srv.Close()
 	defer close(proposeC)
 	defer close(confChangeC)
@@ -152,7 +152,7 @@ func TestLockServerNoContention(t *testing.T) {
 }
 
 func TestLockServerContention(t *testing.T) {
-	srv, cli, proposeC, confChangeC := setup()
+	srv, cli, proposeC, confChangeC := lockserver_test_setup()
 	defer srv.Close()
 	defer close(proposeC)
 	defer close(confChangeC)

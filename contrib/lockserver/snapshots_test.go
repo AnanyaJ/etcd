@@ -1,195 +1,175 @@
 package main
 
-// func setup() (srv *httptest.Server, cli *http.Client, proposeC chan []byte, confChangeC chan raftpb.ConfChange) {
-// 	clusters := []string{"http://127.0.0.1:9021"}
-// 	proposeC = make(chan []byte)
-// 	confChangeC = make(chan raftpb.ConfChange)
+import (
+	"encoding/gob"
+	"encoding/json"
+	"log"
+	"testing"
+	"time"
 
-// 	var ls LockServerSnapshot
-// 	getSnapshot := func() ([]byte, error) { return ls.getSnapshot() }
-// 	commitC, errorC, snapshotterReady := newRaftNode(1, clusters, false, getSnapshot, proposeC, confChangeC, true)
+	"go.etcd.io/raft/v3/raftpb"
+)
 
-// 	ls = newQueueLockServer(<-snapshotterReady, proposeC, commitC, errorC)
+const (
+	SnapshotTestOpA int = iota
+	SnapshotTestOpB
+	SnapshotTestOpC
+	SnapshotTestOpD
+	SnapshotTestOpE
+	SnapshotTestOpF
+)
 
-// 	srv = httptest.NewServer(&httpLSAPI{
-// 		server: ls,
-// 	})
+func snapshots_test_setup() (blockingRaftNode *BlockingRaftNode[string, KVOp, bool], proposeC chan []byte, confChangeC chan raftpb.ConfChange) {
+	clusters := []string{"http://127.0.0.1:9021"}
+	proposeC = make(chan []byte)
+	confChangeC = make(chan raftpb.ConfChange)
 
-// 	// wait for server to start
-// 	<-time.After(time.Second)
+	getSnapshot := func() ([]byte, error) { return blockingRaftNode.getSnapshot() }
 
-// 	cli = srv.Client()
+	commitC, errorC, snapshotterReady := newRaftNode(1, clusters, false, getSnapshot, proposeC, confChangeC, true)
 
-// 	return srv, cli, proposeC, confChangeC
-// }
+	gob.Register(KVState{})
+	lockState := make(KVState)
+	blockingRaftNode = newBlockingRaftNode[string, KVOp, bool](<-snapshotterReady, commitC, errorC, lockState, apply)
 
-// func makeRequest(t *testing.T, serverURL string, reqType string, lockName string) *http.Request {
-// 	url := fmt.Sprintf("%s/%s", serverURL, reqType)
-// 	body := bytes.NewBufferString(lockName)
-// 	req, err := http.NewRequest(http.MethodPut, url, body)
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	req.Header.Set("Content-Type", "text/html; charset=utf-8")
-// 	return req
-// }
+	return blockingRaftNode, proposeC, confChangeC
+}
 
-// func parseResponse(t *testing.T, resp *http.Response) bool {
-// 	data, err := io.ReadAll(resp.Body)
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	defer resp.Body.Close()
+func apply(
+	data []byte,
+	access func(KVOp) bool,
+	wait func(string),
+	signal func(string),
+) []byte {
+	var opType int
+	err := json.Unmarshal(data, &opType)
+	if err != nil {
+		log.Fatalf("Failed to unmarshal applied op")
+	}
 
-// 	return strings.Contains(string(data), "true")
-// }
+	isLocked := func(lock string) bool { return access(KVOp{OpType: GetOp, Key: lock}) }
+	setLocked := func(lock string, val bool) { access(KVOp{OpType: PutOp, Key: lock, Val: val}) }
 
-// func getResponse(t *testing.T, cli *http.Client, req *http.Request) bool {
-// 	resp, err := cli.Do(req)
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	return parseResponse(t, resp)
-// }
+	acquire := func(lock string) {
+		for isLocked(lock) {
+			wait(lock) // keep waiting while lock is held
+		}
+		setLocked(lock, true)
+	}
+	release := func(lock string) {
+		if isLocked(lock) {
+			setLocked(lock, false)
+			signal(lock)
+		}
+	}
 
-// func checkAcquire(t *testing.T, got bool) {
-// 	expected := true
-// 	if got != expected {
-// 		t.Fatalf("Acquire: expected %t, got %t", expected, got)
-// 	}
-// }
+	switch opType {
+	case SnapshotTestOpA:
+		acquire("lock2")
+	case SnapshotTestOpB:
+		acquire("lock1")
+	case SnapshotTestOpC:
+		if !isLocked("lock1") {
+			acquire("lock2")
+		}
+	case SnapshotTestOpD:
+		return marshal(isLocked("lock1"))
+	case SnapshotTestOpE:
+		release("lock2")
+	case SnapshotTestOpF:
+		return marshal(isLocked("lock2"))
+	}
 
-// func checkRelease(t *testing.T, got bool, wasLocked bool) {
-// 	expected := wasLocked
-// 	if got != expected {
-// 		t.Fatalf("Release: expected %t, got %t", expected, got)
-// 	}
-// }
+	return marshal(true)
+}
 
-// func checkIsLocked(t *testing.T, got bool, isLocked bool) {
-// 	expected := isLocked
-// 	if got != expected {
-// 		t.Fatalf("IsLocked: expected %t, got %t", expected, got)
-// 	}
-// }
+func marshal_optype(t *testing.T, opType int) []byte {
+	op, err := json.Marshal(&opType)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return op
+}
 
-// func checkNumAcquired(t *testing.T, hasAcquired []bool, expected int) {
-// 	num := 0
-// 	for i := 0; i < len(hasAcquired); i++ {
-// 		if hasAcquired[i] {
-// 			num++
-// 		}
-// 	}
-// 	if num != expected {
-// 		t.Fatalf("Expected %d client(s) to have acquired the lock thus far, but instead %d acquired it", expected, num)
-// 	}
-// }
+func check_result_and_get_op_type(t *testing.T, op AppliedOp) int {
+	var res bool
+	err := json.Unmarshal(op.result, &res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res != true {
+		t.Fatal("Expected result true but got false")
+	}
 
-// func TestLockServerNoContention(t *testing.T) {
-// 	srv, cli, proposeC, confChangeC := setup()
-// 	defer srv.Close()
-// 	defer close(proposeC)
-// 	defer close(confChangeC)
+	var opType int
+	err = json.Unmarshal(op.op, &opType)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return opType
+}
 
-// 	lock1 := "lock1"
-// 	lock2 := "lock2"
+func TestSnapshots(t *testing.T) {
+	node, proposeC, confChangeC := snapshots_test_setup()
 
-// 	// acquire new lock
-// 	req := makeRequest(t, srv.URL, "acquire", lock1)
-// 	resp := getResponse(t, cli, req)
-// 	checkAcquire(t, resp)
+	// acquire lock2
+	proposeC <- marshal_optype(t, SnapshotTestOpA)
+	doneOp := check_result_and_get_op_type(t, <-node.appliedC)
+	if doneOp != SnapshotTestOpA {
+		t.Fatalf("Expected operation %d to be applied but got %d instead", SnapshotTestOpA, doneOp)
+	}
 
-// 	// lock should now be marked as locked
-// 	req = makeRequest(t, srv.URL, "islocked", lock1)
-// 	resp = getResponse(t, cli, req)
-// 	checkIsLocked(t, resp, true)
+	// will block on lock2 since lock1 is free
+	proposeC <- marshal_optype(t, SnapshotTestOpC)
 
-// 	// lock that server has never heard of should be free
-// 	req = makeRequest(t, srv.URL, "islocked", lock2)
-// 	resp = getResponse(t, cli, req)
-// 	checkIsLocked(t, resp, false)
+	// acquire lock1
+	proposeC <- marshal_optype(t, SnapshotTestOpB)
+	doneOp = check_result_and_get_op_type(t, <-node.appliedC)
+	if doneOp != SnapshotTestOpB {
+		t.Fatalf("Expected operation %d to be applied but got %d instead", SnapshotTestOpB, doneOp)
+	}
 
-// 	// try releasing lock that isn't being held
-// 	req = makeRequest(t, srv.URL, "release", lock2)
-// 	resp = getResponse(t, cli, req)
-// 	checkIsLocked(t, resp, false)
+	snapshot, err := node.getSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-// 	// release lock
-// 	req = makeRequest(t, srv.URL, "release", lock1)
-// 	resp = getResponse(t, cli, req)
-// 	checkIsLocked(t, resp, true)
+	close(proposeC)
+	close(confChangeC)
 
-// 	// lock should now be free again
-// 	req = makeRequest(t, srv.URL, "islocked", lock1)
-// 	resp = getResponse(t, cli, req)
-// 	checkIsLocked(t, resp, false)
-// }
+	<-time.After(time.Second)
 
-// func TestLockServerContention(t *testing.T) {
-// 	srv, cli, proposeC, confChangeC := setup()
-// 	defer srv.Close()
-// 	defer close(proposeC)
-// 	defer close(confChangeC)
+	// replay from snapshot
+	node, proposeC, confChangeC = snapshots_test_setup()
+	node.recoverFromSnapshot(snapshot)
 
-// 	lock1 := "lock1"
-// 	lock2 := "lock2"
-// 	numContending := 4
+	// make sure that lock1 is still locked
+	proposeC <- marshal_optype(t, SnapshotTestOpD)
+	doneOp = check_result_and_get_op_type(t, <-node.appliedC)
+	if doneOp != SnapshotTestOpD {
+		t.Fatalf("Expected operation %d to be applied but got %d instead", SnapshotTestOpD, doneOp)
+	}
 
-// 	hasAcquiredLock := make([]bool, numContending)
-// 	// make concurrent requests for same lock
-// 	for i := 0; i < numContending-1; i++ {
-// 		go func(i int) {
-// 			req := makeRequest(t, srv.URL, "acquire", lock1)
-// 			resp := getResponse(t, cli, req)
-// 			checkAcquire(t, resp)
-// 			hasAcquiredLock[i] = true
-// 		}(i)
-// 	}
+	// release lock2 so that op C can acquire it
+	proposeC <- marshal_optype(t, SnapshotTestOpE)
 
-// 	for i := 1; i < numContending-1; i++ {
-// 		// wait for server to give out the lock
-// 		<-time.After(time.Second)
+	doneOp1 := check_result_and_get_op_type(t, <-node.appliedC)
+	doneOp2 := check_result_and_get_op_type(t, <-node.appliedC)
 
-// 		checkNumAcquired(t, hasAcquiredLock, i)
+	if !((doneOp1 == SnapshotTestOpC && doneOp2 == SnapshotTestOpE) || (doneOp1 == SnapshotTestOpE && doneOp2 == SnapshotTestOpC)) {
+		t.Fatalf("Expected ops %d and %d to be applied but got %d and %d instead", SnapshotTestOpC, SnapshotTestOpE, doneOp1, doneOp2)
+	}
 
-// 		// release lock for another client
-// 		req := makeRequest(t, srv.URL, "release", lock1)
-// 		resp := getResponse(t, cli, req)
-// 		checkRelease(t, resp, true)
-// 	}
+	// make sure that lock2 is still locked, now by op C
+	// This is because in the original execution, op C blocks on lock2 because lock1 is free at the time.
+	// Even though after replaying the snapshot, lock1 is held, op C should still try to acquire lock2
+	// because otherwise its behavior is not deterministic.
+	proposeC <- marshal_optype(t, SnapshotTestOpF)
+	doneOp = check_result_and_get_op_type(t, <-node.appliedC)
+	if doneOp != SnapshotTestOpF {
+		t.Fatalf("Expected operation %d to be applied but got %d instead", SnapshotTestOpF, doneOp)
+	}
 
-// 	// should be able to acquire different lock while others are blocking
-// 	req := makeRequest(t, srv.URL, "acquire", lock2)
-// 	resp := getResponse(t, cli, req)
-// 	checkAcquire(t, resp)
-
-// 	// add last client waiting for same lock
-// 	go func() {
-// 		req = makeRequest(t, srv.URL, "acquire", lock1)
-// 		resp = getResponse(t, cli, req)
-// 		checkAcquire(t, resp)
-// 		hasAcquiredLock[numContending-1] = true
-// 	}()
-
-// 	// make sure server does not give out same lock again
-// 	<-time.After(100 * time.Millisecond)
-// 	checkNumAcquired(t, hasAcquiredLock, numContending-1)
-
-// 	// release lock for last client
-// 	req = makeRequest(t, srv.URL, "release", lock1)
-// 	resp = getResponse(t, cli, req)
-// 	checkRelease(t, resp, true)
-
-// 	<-time.After(100 * time.Millisecond)
-// 	checkNumAcquired(t, hasAcquiredLock, numContending)
-
-// 	// release lock so that it becomes free
-// 	req = makeRequest(t, srv.URL, "release", lock1)
-// 	resp = getResponse(t, cli, req)
-// 	checkRelease(t, resp, true)
-
-// 	// check that lock is available now
-// 	req = makeRequest(t, srv.URL, "islocked", lock1)
-// 	resp = getResponse(t, cli, req)
-// 	checkIsLocked(t, resp, false)
-// }
+	close(proposeC)
+	close(confChangeC)
+}
