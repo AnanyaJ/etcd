@@ -19,6 +19,7 @@ import (
 	"flag"
 	"strings"
 
+	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
 	"go.etcd.io/raft/v3/raftpb"
 )
 
@@ -37,10 +38,14 @@ func main() {
 	defer close(confChangeC)
 
 	var blockingRaftNode *BlockingRaftNode[string, KVOp, bool]
+	var blockingRaftNodeTranslation *BlockingRaftNodeTranslation[string]
 	getSnapshot := func() ([]byte, error) { return nil, nil }
 	if *impl == "blockingraft" {
 		getSnapshot = func() ([]byte, error) { return blockingRaftNode.getSnapshot() }
+	} else if *impl == "blockingrafttranslate" {
+		getSnapshot = func() ([]byte, error) { return blockingRaftNodeTranslation.getSnapshot() }
 	}
+
 	commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC, *clearLog)
 	snapshotter := <-snapshotterReady
 
@@ -66,6 +71,18 @@ func main() {
 		blockingRaftNode = newBlockingRaftNode[string, KVOp, bool](snapshotter, commitC, errorC, lockState, replLockServer.apply)
 		replLockServer = newReplLockServer(proposeC, blockingRaftNode.appliedC)
 		lockServer = replLockServer
+	case "blockingrafttranslate":
+		var afterTranslateLockServer *LockServerTranslate
+		apply := func(data []byte, access func(func() any) any, wait func(string), signal func(string)) []byte {
+			return afterTranslateLockServer.apply(data, access, wait, signal)
+		}
+		snapshot := func() ([]byte, error) { return afterTranslateLockServer.getSnapshot() }
+		loadSnapshot := func(snapshot []byte) error { return afterTranslateLockServer.loadSnapshot(snapshot) }
+		snapshotterReady := make(chan *snap.Snapshotter)
+		blockingRaftNodeTranslation = newBlockingRaftNodeTranslation[string](snapshotterReady, commitC, errorC, apply, snapshot, loadSnapshot)
+		afterTranslateLockServer = newTranslateLockServer(proposeC, blockingRaftNodeTranslation.appliedC)
+		snapshotterReady <- snapshotter
+		lockServer = afterTranslateLockServer
 	}
 
 	// the key-value http handler will propose updates to raft
