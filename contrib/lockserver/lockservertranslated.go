@@ -5,7 +5,9 @@ import "encoding/json"
 type LockServerTranslate struct {
 	locks map // Propose op that some RPC handler wants to replicate
 	// ops that been executed to completion
-	// @get bool
+	// TODO: add this parameter during translation
+	// TODO: allow gets to return more than one value
+	// @get bool (need to specify type of return value)
 	// keep waiting while lock is held
 	// @get bool
 	// @put

@@ -51,13 +51,15 @@ package main
 
 // func (s *LockServerTranslate) apply(
 // 	data []byte,
-// 	access func(func() any) any,
+// 	access func(func() any) any, // TODO: add this parameter during translation
 // 	wait func(string),
 // 	signal func(string),
 // ) []byte {
 // 	op := lockOpFromBytes(data)
 
-// 	isLocked := s.locks[op.LockName] // @get bool
+// 	// TODO: allow gets to return more than one value
+// 	// note that RSM state can only be exposed through return values, not pointer parameters
+// 	isLocked := s.locks[op.LockName] // @get bool (need to specify type of return value)
 
 // 	var returnVal bool
 // 	switch op.OpType {
