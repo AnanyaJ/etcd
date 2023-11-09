@@ -146,7 +146,7 @@ func main() {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, *inputfile, nil, parser.ParseComments)
 	if err != nil {
-		log.Fatalf("Could not open file %s for translation", inputfile)
+		log.Fatalf("Could not open file %s for translation", *inputfile)
 	}
 
 	modifyAST(file, fset)

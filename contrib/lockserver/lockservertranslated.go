@@ -25,7 +25,8 @@ package main
 // }
 
 // func (s *LockServerTranslate) startOp(opType int, lockName string, opNum int64) bool {
-// 	op, result := s.opManager.addOp(opType, lockName, opNum)
+//  op := LockOp{OpType: opType, LockName: lockName, OpNum: opNum}
+//  result := s.opManager.addOp(opNum)
 // 	s.proposeC <- op.marshal()
 // 	return <-result
 // }

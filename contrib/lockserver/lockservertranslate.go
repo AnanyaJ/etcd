@@ -23,7 +23,8 @@ func newTranslateLockServer(proposeC chan []byte, appliedC <-chan AppliedOp) *Lo
 
 // Propose op that some RPC handler wants to replicate
 func (s *LockServerTranslate) startOp(opType int, lockName string, opNum int64) bool {
-	op, result := s.opManager.addOp(opType, lockName, opNum)
+	op := LockOp{OpType: opType, LockName: lockName, OpNum: opNum}
+	result := s.opManager.addOp(opNum)
 	s.proposeC <- op.marshal()
 	return <-result
 }

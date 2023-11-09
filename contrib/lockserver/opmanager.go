@@ -14,14 +14,13 @@ func newOpManager() *OpManager {
 	}
 }
 
-func (om *OpManager) addOp(opType int, lockName string, opNum int64) (LockOp, chan bool) {
+func (om *OpManager) addOp(opNum int64) chan bool {
 	om.mu.Lock()
 	defer om.mu.Unlock()
 
 	result := make(chan bool)
 	om.opResults[opNum] = result
-	op := LockOp{OpNum: opNum, OpType: opType, LockName: lockName}
-	return op, result
+	return result
 }
 
 func (om *OpManager) reportOpFinished(opNum int64, result bool) {
