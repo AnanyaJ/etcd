@@ -53,7 +53,7 @@ package main
 
 // func (kv *KVServer) apply(
 // 	data []byte,
-// 	access func(func() any) any,
+// 	access func(func() []any) []any,
 // 	wait func(string),
 // 	signal func(string),
 // ) []byte {

@@ -20,6 +20,7 @@ hack/tls-setup/certs
 /contrib/lockserver/lockserver-*
 /contrib/raftexample/raftexample
 /contrib/raftexample/raftexample-*
+/contrib/translator/translator
 /vendor
 /tests/e2e/default.proxy
 *.tmp

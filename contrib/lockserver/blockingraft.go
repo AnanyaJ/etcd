@@ -10,13 +10,13 @@ import (
 type CoroWithAccesses struct {
 	OpData     []byte
 	Resume     func() (Status, []byte)
-	Accesses   []any
+	Accesses   [][]any
 	NumResumes int
 }
 
 type PartialOp struct {
 	OpData     []byte
-	Accesses   []any
+	Accesses   [][]any
 	NumResumes int
 }
 
@@ -46,7 +46,7 @@ func newBlockingRaftNode[Key constraints.Ordered](
 	snapshotterReady <-chan *snap.Snapshotter,
 	commitC <-chan *commit,
 	errorC <-chan error,
-	apply func(op []byte, access func(func() any) any, wait func(Key), signal func(Key)) []byte,
+	apply func(op []byte, access func(func() []any) []any, wait func(Key), signal func(Key)) []byte,
 	snapshotFunc func() ([]byte, error),
 	loadSnapshotFunc func([]byte) error,
 ) *BlockingRaftNode[Key] {
@@ -76,10 +76,10 @@ func (n *BlockingRaftNode[Key]) start() {
 	go n.applyCommits()
 }
 
-func (n *BlockingRaftNode[Key]) access(accessFunc func() any) any {
+func (n *BlockingRaftNode[Key]) access(accessFunc func() []any) []any {
 	// coroutine corresponding to this access
 	coro := n.currentlyExecuting
-	var out any
+	var out []any
 	if n.replaying {
 		// return saved access output instead of actually reading/modifying RSM state
 		// to ensure that coroutine replay matches original execution

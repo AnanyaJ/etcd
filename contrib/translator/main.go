@@ -37,19 +37,25 @@ func findMatchingComment(commGroups []*ast.CommentGroup, text string) *string {
 	return nil
 }
 
+func getAccessReturnType() ast.Expr {
+	return &ast.ArrayType{
+		Elt: ast.NewIdent("any"),
+	}
+}
+
 // signature of input function that performs access
 func getAccessInputFuncType() *ast.FuncType {
 	return &ast.FuncType{
 		Params: &ast.FieldList{},
 		Results: &ast.FieldList{List: []*ast.Field{
 			&ast.Field{
-				Type: ast.NewIdent("any"),
+				Type: getAccessReturnType(),
 			},
 		}},
 	}
 }
 
-func getAccessCallExpr(input *ast.FuncLit) *ast.CallExpr {
+func getAccessCallExpr(input *ast.FuncLit) ast.Expr {
 	return &ast.CallExpr{
 		Fun:  &ast.Ident{Name: "access"},
 		Args: []ast.Expr{input},
@@ -70,13 +76,27 @@ func wrapGetAccess(node ast.Node, getComment string) {
 		Type: getAccessInputFuncType(),
 		Body: &ast.BlockStmt{List: []ast.Stmt{
 			&ast.ReturnStmt{
-				Results: assignStmt.Rhs,
+				Results: []ast.Expr{
+					&ast.CompositeLit{
+						Type: getAccessReturnType(),
+						Elts: assignStmt.Rhs,
+					},
+				},
 			},
 		}},
 	}
 
 	// pass function literal to provided access function so RSM library can mediate access
 	accessCall := getAccessCallExpr(accessCallLit)
+
+	// get return value from returned array
+	accessCallIndexed := &ast.IndexExpr{
+		X: accessCall,
+		Index: &ast.BasicLit{
+			Kind:  token.INT,
+			Value: "0",
+		},
+	}
 
 	commentComponents := strings.Split(getComment, " ")
 	if len(commentComponents) < 3 {
@@ -86,7 +106,7 @@ func wrapGetAccess(node ast.Node, getComment string) {
 
 	// assert type to match LHS of assignment
 	typedAccessCall := &ast.TypeAssertExpr{
-		X:    accessCall,
+		X:    accessCallIndexed,
 		Type: &ast.Ident{Name: varType},
 	}
 
@@ -105,9 +125,13 @@ func wrapPutAccess(file *ast.File, node ast.Node) {
 		Body: &ast.BlockStmt{
 			List: []ast.Stmt{
 				stmt,
-				// return some arbitrary value to satisfy required func signature
 				&ast.ReturnStmt{
-					Results: []ast.Expr{&ast.BasicLit{Kind: token.INT, Value: "1"}},
+					Results: []ast.Expr{
+						&ast.CompositeLit{
+							Type: getAccessReturnType(),
+							Elts: []ast.Expr{},
+						},
+					},
 				},
 			},
 		},
@@ -139,8 +163,8 @@ func modifyAST(file *ast.File, fset *token.FileSet) {
 }
 
 func main() {
-	inputfile := flag.String("inputfile", "../lockserver/lockservertranslate.go", "Go RSM application file to translate")
-	outputfile := flag.String("outputfile", "../lockserver/lockservertranslated.go", "Path to write generated RSM application file to")
+	inputfile := flag.String("inputfile", "../lockserver/lockserverrepl.go", "Go RSM application file to translate")
+	outputfile := flag.String("outputfile", "../lockserver/lockserverrepltranslated.go", "Path to write generated RSM application file to")
 	flag.Parse()
 
 	fset := token.NewFileSet()

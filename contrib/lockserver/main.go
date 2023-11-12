@@ -63,20 +63,20 @@ func main() {
 		kvLockServer = newKVLockServer(proposeC, appliedC)
 		lockServer = kvLockServer
 	case "blockingraft":
-		var translatedLockServer *LockServerTranslate
-		apply := func(data []byte, access func(func() any) any, wait func(string), signal func(string)) []byte {
+		var translatedLockServer *LockServerRepl
+		apply := func(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) []byte {
 			return translatedLockServer.apply(data, access, wait, signal)
 		}
 		snapshot := func() ([]byte, error) { return translatedLockServer.getSnapshot() }
 		loadSnapshot := func(snapshot []byte) error { return translatedLockServer.loadSnapshot(snapshot) }
 		snapshotterReady := make(chan *snap.Snapshotter)
 		blockingRaftNode = newBlockingRaftNode[string](snapshotterReady, commitC, errorC, apply, snapshot, loadSnapshot)
-		translatedLockServer = newTranslateLockServer(proposeC, blockingRaftNode.appliedC)
+		translatedLockServer = newReplLockServer(proposeC, blockingRaftNode.appliedC)
 		snapshotterReady <- snapshotter
 		lockServer = translatedLockServer
 	case "kv":
 		var kvServer *KVServer
-		apply := func(data []byte, access func(func() any) any, wait func(string), signal func(string)) []byte {
+		apply := func(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) []byte {
 			return kvServer.apply(data, access, wait, signal)
 		}
 		snapshot := func() ([]byte, error) { return kvServer.getSnapshot() }

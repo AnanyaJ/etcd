@@ -65,7 +65,7 @@ func (s *SnapshotsTestState) restart_from_snapshot(
 
 func (s *SnapshotsTestState) apply(
 	data []byte,
-	access func(func() any) any,
+	access func(func() []any) []any,
 	wait func(string),
 	signal func(string),
 ) []byte {
@@ -75,8 +75,16 @@ func (s *SnapshotsTestState) apply(
 		log.Fatalf("Failed to unmarshal applied op")
 	}
 
-	isLocked := func(lock string) bool { return access(func() any { return s.locks[lock] }).(bool) }
-	setLocked := func(lock string, val bool) { access(func() any { s.locks[lock] = val; return 1 }) }
+	isLocked := func(lock string) bool {
+		res := access(func() []any { return []any{s.locks[lock]} })
+		return res[0].(bool)
+	}
+	setLocked := func(lock string, val bool) {
+		access(func() []any {
+			s.locks[lock] = val
+			return []any{}
+		})
+	}
 
 	acquire := func(lock string) {
 		for isLocked(lock) {

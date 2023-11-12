@@ -44,24 +44,24 @@ func (kv *KVServer) processApplied() {
 		kv.opManager.reportOpFinished(op.OpNum, result)
 	}
 }
-func (kv *KVServer) apply(data []byte, access func(func() any) any, wait func(string), signal func(string)) []byte {
+func (kv *KVServer) apply(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) []byte {
 	op := kvStoreOpFromBytes(data)
 	switch op.OpType {
 	case IncrementOp:
-		access(func() any {
+		access(func() []any {
 			kv.kv[op.Key]++
-			return 1
+			return []any{}
 		})
 		signal(op.Key)
 	case WaitOp:
-		val := access(func() any {
-			return kv.kv[op.Key]
-		}).(int)
+		val := access(func() []any {
+			return []any{kv.kv[op.Key]}
+		})[0].(int)
 		for val != op.Val {
 			wait(op.Key)
-			val = access(func() any {
-				return kv.kv[op.Key]
-			}).(int)
+			val = access(func() []any {
+				return []any{kv.kv[op.Key]}
+			})[0].(int)
 		}
 	}
 	return marshal(true)

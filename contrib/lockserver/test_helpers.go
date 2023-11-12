@@ -46,7 +46,7 @@ func translated_lockserver_setup() (srv *httptest.Server, cli *http.Client, prop
 	confChangeC = make(chan raftpb.ConfChange)
 
 	var ls *LockServerTranslate
-	apply := func(data []byte, access func(func() any) any, wait func(string), signal func(string)) []byte {
+	apply := func(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) []byte {
 		return ls.apply(data, access, wait, signal)
 	}
 	snapshot := func() ([]byte, error) { return ls.getSnapshot() }
