@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
 	"go.etcd.io/raft/v3/raftpb"
 )
 
@@ -46,22 +45,9 @@ func translated_lockserver_setup() (srv *httptest.Server, cli *http.Client, prop
 	confChangeC = make(chan raftpb.ConfChange)
 
 	var ls *LockServerRepl
-	apply := func(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) []byte {
-		return ls.apply(data, access, wait, signal)
-	}
-	snapshot := func() ([]byte, error) { return ls.getSnapshot() }
-	loadSnapshot := func(snapshot []byte) error { return ls.loadSnapshot(snapshot) }
-
-	var raftNode *BlockingRaftNode[string]
-	getSnapshot := func() ([]byte, error) { return raftNode.getSnapshot() }
-
-	commitC, errorC, underlyingSnapshotterReady := newRaftNode(1, clusters, false, getSnapshot, proposeC, confChangeC, true)
-	snapshotter := <-underlyingSnapshotterReady
-
-	snapshotterReady := make(chan *snap.Snapshotter)
-	raftNode = newBlockingRaftNode[string](snapshotterReady, commitC, errorC, apply, snapshot, loadSnapshot)
+	raftNode := newBlockingRaftNode[string](1, clusters, false, proposeC, confChangeC, true, ls)
 	ls = newReplLockServer(proposeC, raftNode.appliedC)
-	snapshotterReady <- snapshotter
+	raftNode.start()
 
 	srv = httptest.NewServer(&httpLSAPI{
 		server: ls,

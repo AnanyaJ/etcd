@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
+	"go.etcd.io/raft/v3/raftpb"
 	"golang.org/x/exp/constraints"
 )
 
@@ -43,20 +44,27 @@ type BlockingRaftNode[Key constraints.Ordered] struct {
 }
 
 func newBlockingRaftNode[Key constraints.Ordered](
-	snapshotterReady <-chan *snap.Snapshotter,
-	commitC <-chan *commit,
-	errorC <-chan error,
-	apply func(op []byte, access func(func() []any) []any, wait func(Key), signal func(Key)) []byte,
-	snapshotFunc func() ([]byte, error),
-	loadSnapshotFunc func([]byte) error,
+	id int,
+	peers []string,
+	join bool,
+	proposeC <-chan []byte,
+	confChangeC <-chan raftpb.ConfChange,
+	clearLog bool,
+	app BlockingApp[Key],
 ) *BlockingRaftNode[Key] {
 	var n *BlockingRaftNode[Key]
+	commitC, errorC, snapshotterReady := newRaftNode(id, peers, join, n.getSnapshot, proposeC, confChangeC, clearLog)
+
 	appliedC := make(chan AppliedOp)
+
 	// convert apply function into generic coroutine function
 	applyFunc := func(wait func(Key), signal func(Key), args ...interface{}) []byte {
 		op := args[0].([]byte)
-		return apply(op, n.access, wait, signal)
+		return app.apply(op, n.access, wait, signal)
 	}
+	snapshotFunc := func() ([]byte, error) { return app.getSnapshot() }
+	loadSnapshotFunc := func(snapshot []byte) error { return app.loadSnapshot(snapshot) }
+
 	n = &BlockingRaftNode[Key]{
 		snapshotterReady: snapshotterReady,
 		commitC:          commitC,
@@ -67,7 +75,6 @@ func newBlockingRaftNode[Key constraints.Ordered](
 		loadSnapshotFunc: loadSnapshotFunc,
 		queues:           make(map[Key]Queue[CoroWithAccesses]),
 	}
-	go n.start()
 	return n
 }
 

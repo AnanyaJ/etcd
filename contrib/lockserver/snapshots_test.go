@@ -27,13 +27,8 @@ func (s *SnapshotsTestState) setup_test() (blockingRaftNode *BlockingRaftNode[st
 	clusters := []string{"http://127.0.0.1:9021"}
 	proposeC = make(chan []byte)
 	confChangeC = make(chan raftpb.ConfChange)
-
-	getSnapshot := func() ([]byte, error) { return blockingRaftNode.getSnapshot() }
-
-	commitC, errorC, snapshotterReady := newRaftNode(1, clusters, false, getSnapshot, proposeC, confChangeC, true)
-
-	blockingRaftNode = newBlockingRaftNode[string](snapshotterReady, commitC, errorC, s.apply, s.getSnapshot, s.loadSnapshot)
-
+	blockingRaftNode = newBlockingRaftNode[string](1, clusters, false, proposeC, confChangeC, true, s)
+	blockingRaftNode.start()
 	return blockingRaftNode, proposeC, confChangeC
 }
 
