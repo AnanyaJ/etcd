@@ -52,14 +52,14 @@ func translated_lockserver_setup() (srv *httptest.Server, cli *http.Client, prop
 	snapshot := func() ([]byte, error) { return ls.getSnapshot() }
 	loadSnapshot := func(snapshot []byte) error { return ls.loadSnapshot(snapshot) }
 
-	var raftNode *BlockingRaftNodeTranslation[string]
+	var raftNode *BlockingRaftNode[string]
 	getSnapshot := func() ([]byte, error) { return raftNode.getSnapshot() }
 
 	commitC, errorC, underlyingSnapshotterReady := newRaftNode(1, clusters, false, getSnapshot, proposeC, confChangeC, true)
 	snapshotter := <-underlyingSnapshotterReady
 
 	snapshotterReady := make(chan *snap.Snapshotter)
-	raftNode = newBlockingRaftNodeTranslation[string](snapshotterReady, commitC, errorC, apply, snapshot, loadSnapshot)
+	raftNode = newBlockingRaftNode[string](snapshotterReady, commitC, errorC, apply, snapshot, loadSnapshot)
 	ls = newTranslateLockServer(proposeC, raftNode.appliedC)
 	snapshotterReady <- snapshotter
 

@@ -15,7 +15,6 @@
 package main
 
 import (
-	"encoding/gob"
 	"flag"
 	"strings"
 
@@ -28,7 +27,7 @@ func main() {
 	id := flag.Int("id", 1, "node ID")
 	lsport := flag.Int("port", 12380, "lock server port")
 	join := flag.Bool("join", false, "join an existing cluster")
-	impl := flag.String("impl", "blockingrafttranslate", "lock server implementation to use (simple, condvar, queues, coros, kvlocks, blockingraft, blockingrafttranslate, kv)")
+	impl := flag.String("impl", "blockingrafttranslate", "lock server implementation to use (simple, condvar, queues, coros, kvlocks, blockingrafttranslate, kv)")
 	clearLog := flag.Bool("clearlog", false, "whether to use a fresh log, removing all previous persistent state")
 	flag.Parse()
 
@@ -37,13 +36,12 @@ func main() {
 	confChangeC := make(chan raftpb.ConfChange)
 	defer close(confChangeC)
 
-	var blockingRaftNode *BlockingRaftNode[string, KVOp, bool]
-	var blockingRaftNodeTranslation *BlockingRaftNodeTranslation[string]
+	var blockingRaftNode *BlockingRaftNode[string]
 	getSnapshot := func() ([]byte, error) { return nil, nil }
 	if *impl == "blockingraft" {
 		getSnapshot = func() ([]byte, error) { return blockingRaftNode.getSnapshot() }
 	} else if *impl == "blockingrafttranslate" || *impl == "kv" {
-		getSnapshot = func() ([]byte, error) { return blockingRaftNodeTranslation.getSnapshot() }
+		getSnapshot = func() ([]byte, error) { return blockingRaftNode.getSnapshot() }
 	}
 
 	commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC, *clearLog)
@@ -65,24 +63,17 @@ func main() {
 		kvLockServer = newKVLockServer(proposeC, appliedC)
 		lockServer = kvLockServer
 	case "blockingraft":
-		gob.Register(KVState{})
-		lockState := make(KVState)
-		var replLockServer *LockServerRepl
-		blockingRaftNode = newBlockingRaftNode[string, KVOp, bool](snapshotter, commitC, errorC, lockState, replLockServer.apply)
-		replLockServer = newReplLockServer(proposeC, blockingRaftNode.appliedC)
-		lockServer = replLockServer
-	case "blockingrafttranslate":
-		var afterTranslateLockServer *LockServerTranslate
+		var translatedLockServer *LockServerTranslate
 		apply := func(data []byte, access func(func() any) any, wait func(string), signal func(string)) []byte {
-			return afterTranslateLockServer.apply(data, access, wait, signal)
+			return translatedLockServer.apply(data, access, wait, signal)
 		}
-		snapshot := func() ([]byte, error) { return afterTranslateLockServer.getSnapshot() }
-		loadSnapshot := func(snapshot []byte) error { return afterTranslateLockServer.loadSnapshot(snapshot) }
+		snapshot := func() ([]byte, error) { return translatedLockServer.getSnapshot() }
+		loadSnapshot := func(snapshot []byte) error { return translatedLockServer.loadSnapshot(snapshot) }
 		snapshotterReady := make(chan *snap.Snapshotter)
-		blockingRaftNodeTranslation = newBlockingRaftNodeTranslation[string](snapshotterReady, commitC, errorC, apply, snapshot, loadSnapshot)
-		afterTranslateLockServer = newTranslateLockServer(proposeC, blockingRaftNodeTranslation.appliedC)
+		blockingRaftNode = newBlockingRaftNode[string](snapshotterReady, commitC, errorC, apply, snapshot, loadSnapshot)
+		translatedLockServer = newTranslateLockServer(proposeC, blockingRaftNode.appliedC)
 		snapshotterReady <- snapshotter
-		lockServer = afterTranslateLockServer
+		lockServer = translatedLockServer
 	case "kv":
 		var kvServer *KVServer
 		apply := func(data []byte, access func(func() any) any, wait func(string), signal func(string)) []byte {
@@ -91,8 +82,8 @@ func main() {
 		snapshot := func() ([]byte, error) { return kvServer.getSnapshot() }
 		loadSnapshot := func(snapshot []byte) error { return kvServer.loadSnapshot(snapshot) }
 		snapshotterReady := make(chan *snap.Snapshotter)
-		blockingRaftNodeTranslation = newBlockingRaftNodeTranslation[string](snapshotterReady, commitC, errorC, apply, snapshot, loadSnapshot)
-		kvServer = newKVServer(proposeC, blockingRaftNodeTranslation.appliedC)
+		blockingRaftNode = newBlockingRaftNode[string](snapshotterReady, commitC, errorC, apply, snapshot, loadSnapshot)
+		kvServer = newKVServer(proposeC, blockingRaftNode.appliedC)
 		snapshotterReady <- snapshotter
 		serveHTTPKVAPI(kvServer, *lsport, confChangeC, errorC)
 		return

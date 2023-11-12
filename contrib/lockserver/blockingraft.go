@@ -7,76 +7,79 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
-type CoroWithAccesses[Out any] struct {
+type CoroWithAccesses struct {
 	OpData     []byte
 	Resume     func() (Status, []byte)
-	Accesses   []Out
+	Accesses   []any
 	NumResumes int
 }
 
-type RSMState[In, Out any] interface {
-	access(in In) Out
-}
-
-type PartialOp[Out any] struct {
+type PartialOp struct {
 	OpData     []byte
-	Accesses   []Out
+	Accesses   []any
 	NumResumes int
 }
 
-type Snapshot[Key constraints.Ordered, In, Out any] struct {
-	State  RSMState[In, Out]
-	Queues map[Key]Queue[PartialOp[Out]]
+type Snapshot[Key constraints.Ordered] struct {
+	State  []byte
+	Queues map[Key]Queue[PartialOp]
 }
 
-type BlockingRaftNode[Key constraints.Ordered, In, Out any] struct {
-	snapshotter *snap.Snapshotter
-	commitC     <-chan *commit
-	errorC      <-chan error
-	appliedC    chan AppliedOp
+type BlockingRaftNode[Key constraints.Ordered] struct {
+	snapshotterReady <-chan *snap.Snapshotter
+	commitC          <-chan *commit
+	errorC           <-chan error
+	appliedC         chan AppliedOp
 
-	state     RSMState[In, Out]
-	applyFunc func(wait func(Key), signal func(Key), args ...interface{}) []byte
+	applyFunc        func(wait func(Key), signal func(Key), args ...interface{}) []byte
+	snapshotFunc     func() ([]byte, error)
+	loadSnapshotFunc func([]byte) error
 
-	queues map[Key]Queue[CoroWithAccesses[Out]]
+	queues map[Key]Queue[CoroWithAccesses]
 
-	currentlyExecuting *CoroWithAccesses[Out]
+	currentlyExecuting *CoroWithAccesses
 	replaying          bool
 	accessNum          int
 }
 
-func newBlockingRaftNode[Key constraints.Ordered, In, Out any](
-	snapshotter *snap.Snapshotter,
+func newBlockingRaftNode[Key constraints.Ordered](
+	snapshotterReady <-chan *snap.Snapshotter,
 	commitC <-chan *commit,
 	errorC <-chan error,
-	state RSMState[In, Out],
-	apply func(op []byte, access func(In) Out, wait func(Key), signal func(Key)) []byte,
-) *BlockingRaftNode[Key, In, Out] {
-	var n *BlockingRaftNode[Key, In, Out]
+	apply func(op []byte, access func(func() any) any, wait func(Key), signal func(Key)) []byte,
+	snapshotFunc func() ([]byte, error),
+	loadSnapshotFunc func([]byte) error,
+) *BlockingRaftNode[Key] {
+	var n *BlockingRaftNode[Key]
 	appliedC := make(chan AppliedOp)
 	// convert apply function into generic coroutine function
 	applyFunc := func(wait func(Key), signal func(Key), args ...interface{}) []byte {
 		op := args[0].([]byte)
 		return apply(op, n.access, wait, signal)
 	}
-	n = &BlockingRaftNode[Key, In, Out]{
-		snapshotter: snapshotter,
-		commitC:     commitC,
-		errorC:      errorC,
-		appliedC:    appliedC,
-		state:       state,
-		applyFunc:   applyFunc,
-		queues:      make(map[Key]Queue[CoroWithAccesses[Out]]),
+	n = &BlockingRaftNode[Key]{
+		snapshotterReady: snapshotterReady,
+		commitC:          commitC,
+		errorC:           errorC,
+		appliedC:         appliedC,
+		applyFunc:        applyFunc,
+		snapshotFunc:     snapshotFunc,
+		loadSnapshotFunc: loadSnapshotFunc,
+		queues:           make(map[Key]Queue[CoroWithAccesses]),
 	}
-	n.loadSnapshot()
-	go n.applyCommits()
+	go n.start()
 	return n
 }
 
-func (n *BlockingRaftNode[Key, In, Out]) access(in In) Out {
+func (n *BlockingRaftNode[Key]) start() {
+	n.loadSnapshot()
+	go n.applyCommits()
+}
+
+func (n *BlockingRaftNode[Key]) access(accessFunc func() any) any {
 	// coroutine corresponding to this access
 	coro := n.currentlyExecuting
-	var out Out
+	var out any
 	if n.replaying {
 		// return saved access output instead of actually reading/modifying RSM state
 		// to ensure that coroutine replay matches original execution
@@ -87,14 +90,14 @@ func (n *BlockingRaftNode[Key, In, Out]) access(in In) Out {
 		n.accessNum++
 		out = access
 	} else {
-		out = n.state.access(in)
+		out = accessFunc()
 		// remember access in case we need to replay
 		coro.Accesses = append(coro.Accesses, out)
 	}
 	return out
 }
 
-func (n *BlockingRaftNode[Key, In, Out]) applyCommits() {
+func (n *BlockingRaftNode[Key]) applyCommits() {
 	for commit := range n.commitC {
 		if commit == nil {
 			// signaled to load snapshot
@@ -105,7 +108,7 @@ func (n *BlockingRaftNode[Key, In, Out]) applyCommits() {
 		for _, data := range commit.data {
 			// new coro is initially the only runnable one
 			coro := CreateCoro[Key, []byte](n.applyFunc, data)
-			runnable := []CoroWithAccesses[Out]{CoroWithAccesses[Out]{OpData: data, Resume: coro}}
+			runnable := []CoroWithAccesses{CoroWithAccesses{OpData: data, Resume: coro}}
 			// resume coros until no coro can make more progress -- ensures
 			// deterministic behavior since timing of ops arriving on
 			// started channel cannot be controlled
@@ -148,24 +151,29 @@ func (n *BlockingRaftNode[Key, In, Out]) applyCommits() {
 	}
 }
 
-func (n *BlockingRaftNode[Key, In, Out]) getSnapshot() ([]byte, error) {
+func (n *BlockingRaftNode[Key]) getSnapshot() ([]byte, error) {
 	// store queues of partially completed operations
-	queues := make(map[Key]Queue[PartialOp[Out]])
+	queues := make(map[Key]Queue[PartialOp])
 	for key, ops := range n.queues {
-		partialOps := Queue[PartialOp[Out]]{}
+		PartialOpTs := Queue[PartialOp]{}
 		for _, op := range ops {
 			// save everything except actual coroutine which cannot be serialized
-			partialOps = append(partialOps, PartialOp[Out]{op.OpData, op.Accesses, op.NumResumes})
+			PartialOpTs = append(PartialOpTs, PartialOp{op.OpData, op.Accesses, op.NumResumes})
 		}
-		queues[key] = partialOps
+		queues[key] = PartialOpTs
 	}
 	// also save application's RSM state
-	snapshot := Snapshot[Key, In, Out]{n.state, queues}
+	state, err := n.snapshotFunc()
+	if err != nil {
+		return nil, err
+	}
+	snapshot := Snapshot[Key]{state, queues}
 	return encode(snapshot)
 }
 
-func (n *BlockingRaftNode[Key, In, Out]) loadSnapshot() {
-	snapshot, err := n.snapshotter.Load()
+func (n *BlockingRaftNode[Key]) loadSnapshot() {
+	snapshotter := <-n.snapshotterReady
+	snapshot, err := snapshotter.Load()
 	if err == snap.ErrNoSnapshot {
 		return
 	}
@@ -179,24 +187,26 @@ func (n *BlockingRaftNode[Key, In, Out]) loadSnapshot() {
 	}
 }
 
-func (n *BlockingRaftNode[Key, In, Out]) recoverFromSnapshot(data []byte) error {
-	var snapshot Snapshot[Key, In, Out]
+func (n *BlockingRaftNode[Key]) recoverFromSnapshot(data []byte) error {
+	var snapshot Snapshot[Key]
 	if err := decode(data, &snapshot); err != nil {
 		return err
 	}
 
 	// restore application's RSM state
-	n.state = snapshot.State
+	if err := n.loadSnapshotFunc(snapshot.State); err != nil {
+		return err
+	}
 
 	// replay partial ops and reconstruct wait queues
 	n.replaying = true
-	n.queues = map[Key]Queue[CoroWithAccesses[Out]]{}
+	n.queues = map[Key]Queue[CoroWithAccesses]{}
 	for key, partialOps := range snapshot.Queues {
-		ops := Queue[CoroWithAccesses[Out]]{}
+		ops := Queue[CoroWithAccesses]{}
 		for _, partialOp := range partialOps {
 			// create new version of coroutine
 			resume := CreateCoro[Key, []byte](n.applyFunc, partialOp.OpData)
-			coro := CoroWithAccesses[Out]{partialOp.OpData, resume, partialOp.Accesses, partialOp.NumResumes}
+			coro := CoroWithAccesses{partialOp.OpData, resume, partialOp.Accesses, partialOp.NumResumes}
 			// re-run coroutine until it reaches point at time of snapshot
 			n.currentlyExecuting = &coro
 			n.accessNum = 0
