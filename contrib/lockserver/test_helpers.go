@@ -45,7 +45,7 @@ func translated_lockserver_setup() (srv *httptest.Server, cli *http.Client, prop
 	proposeC = make(chan []byte)
 	confChangeC = make(chan raftpb.ConfChange)
 
-	var ls *LockServerTranslate
+	var ls *LockServerRepl
 	apply := func(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) []byte {
 		return ls.apply(data, access, wait, signal)
 	}
@@ -60,7 +60,7 @@ func translated_lockserver_setup() (srv *httptest.Server, cli *http.Client, prop
 
 	snapshotterReady := make(chan *snap.Snapshotter)
 	raftNode = newBlockingRaftNode[string](snapshotterReady, commitC, errorC, apply, snapshot, loadSnapshot)
-	ls = newTranslateLockServer(proposeC, raftNode.appliedC)
+	ls = newReplLockServer(proposeC, raftNode.appliedC)
 	snapshotterReady <- snapshotter
 
 	srv = httptest.NewServer(&httpLSAPI{

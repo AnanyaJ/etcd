@@ -3,17 +3,16 @@ package main
 import "encoding/json"
 
 type LockServerRepl struct {
-	locks map[ // Propose op that some RPC handler wants to replicate
+	locks map // Propose op that some RPC handler wants to replicate
 	// ops that been executed to completion
 	// TODO: add this parameter during translation
-	// TODO: allow gets to return more than one value
-	// note that RSM state can only be exposed through return values, not pointer parameters
-	// @get bool (need to specify type of return value)
+	// @get bool bool (need to specify types of return values)
+	// @put
 	// keep waiting while lock is held
 	// @get bool
 	// @put
 	// @put
-	string]bool
+	[string]bool
 	proposeC  chan []byte
 	opManager *OpManager
 	appliedC  <-chan AppliedOp
@@ -49,17 +48,28 @@ func (s *LockServerRepl) processApplied() {
 }
 func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) []byte {
 	op := lockOpFromBytes(data)
-	isLocked := access(func() []any {
-		return []any{s.locks[op.LockName]}
-	})[0].(bool)
+	retVals4772972299880648690 := access(func() []any {
+		isLocked, ok := s.locks[op.LockName]
+		return []any{isLocked, ok}
+	})
+	isLocked := retVals4772972299880648690[0].(bool)
+	ok := retVals4772972299880648690[1].(bool)
+	if !ok {
+		access(func() []any {
+			s.locks[op.LockName] = false
+			return []any{}
+		})
+	}
 	var returnVal bool
 	switch op.OpType {
 	case AcquireOp:
 		for isLocked {
 			wait(op.LockName)
-			isLocked = access(func() []any {
-				return []any{s.locks[op.LockName]}
-			})[0].(bool)
+			retVals6179762851697513206 := access(func() []any {
+				isLocked := s.locks[op.LockName]
+				return []any{isLocked}
+			})
+			isLocked = retVals6179762851697513206[0].(bool)
 		}
 		access(func() []any {
 			s.locks[op.LockName] = true

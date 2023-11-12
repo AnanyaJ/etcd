@@ -3,12 +3,15 @@ package main
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"go/ast"
 	"go/format"
 	"go/parser"
 	"go/token"
 	"log"
+	"math/rand"
 	"os"
+	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/ast/astutil"
@@ -62,24 +65,26 @@ func getAccessCallExpr(input *ast.FuncLit) ast.Expr {
 	}
 }
 
-func wrapGetAccess(node ast.Node, getComment string) {
+func wrapGetAccess(file *ast.File, node ast.Node, getComment string) {
 	assignStmt, ok := node.(*ast.AssignStmt)
 	if !ok {
 		log.Fatalf("%s can only be used to annotate an assignment", GetAnnotation)
-	}
-	if len(assignStmt.Lhs) != 1 {
-		log.Fatalf("%s must perform assignment to exactly one value", GetAnnotation)
 	}
 
 	// wrap RHS of assignment in function literal
 	accessCallLit := &ast.FuncLit{
 		Type: getAccessInputFuncType(),
 		Body: &ast.BlockStmt{List: []ast.Stmt{
+			&ast.AssignStmt{
+				Lhs: assignStmt.Lhs,
+				Tok: token.DEFINE,
+				Rhs: assignStmt.Rhs,
+			},
 			&ast.ReturnStmt{
 				Results: []ast.Expr{
 					&ast.CompositeLit{
 						Type: getAccessReturnType(),
-						Elts: assignStmt.Rhs,
+						Elts: assignStmt.Lhs,
 					},
 				},
 			},
@@ -89,28 +94,59 @@ func wrapGetAccess(node ast.Node, getComment string) {
 	// pass function literal to provided access function so RSM library can mediate access
 	accessCall := getAccessCallExpr(accessCallLit)
 
-	// get return value from returned array
-	accessCallIndexed := &ast.IndexExpr{
-		X: accessCall,
-		Index: &ast.BasicLit{
-			Kind:  token.INT,
-			Value: "0",
-		},
+	// create unique variable name to store return values array
+	retValsVar := ast.NewIdent(fmt.Sprintf("retVals%d", rand.Int()))
+
+	// assign access result to return values variable
+	retValsAssignment := &ast.AssignStmt{
+		Lhs: []ast.Expr{retValsVar},
+		Tok: token.DEFINE,
+		Rhs: []ast.Expr{accessCall},
 	}
+
+	numRetVals := len(assignStmt.Lhs)
 
 	commentComponents := strings.Split(getComment, " ")
-	if len(commentComponents) < 3 {
-		log.Fatalf("%s annotation must be followed by type of assignment", GetAnnotation)
-	}
-	varType := commentComponents[2]
-
-	// assert type to match LHS of assignment
-	typedAccessCall := &ast.TypeAssertExpr{
-		X:    accessCallIndexed,
-		Type: &ast.Ident{Name: varType},
+	if len(commentComponents) < 2+numRetVals {
+		log.Fatalf("%s annotation must be followed by types of assignment", GetAnnotation)
 	}
 
-	assignStmt.Rhs = []ast.Expr{typedAccessCall}
+	getStmts := []ast.Stmt{}
+
+	// deconstruct return values
+	for i := numRetVals - 1; i >= 0; i-- {
+		// assert type to match LHS
+		typedAccessCall := &ast.TypeAssertExpr{
+			X: &ast.IndexExpr{
+				X: retValsVar,
+				Index: &ast.BasicLit{
+					Kind:  token.INT,
+					Value: strconv.Itoa(i),
+				},
+			},
+			Type: &ast.Ident{Name: commentComponents[i+2]},
+		}
+
+		retValAssignment := &ast.AssignStmt{
+			Lhs: []ast.Expr{assignStmt.Lhs[i]},
+			Tok: assignStmt.Tok,
+			Rhs: []ast.Expr{typedAccessCall},
+		}
+
+		getStmts = append(getStmts, retValAssignment)
+	}
+
+	// replace existing put node with access call and assignments
+	astutil.Apply(file, func(cr *astutil.Cursor) bool {
+		if cr.Node() == node {
+			cr.Replace(retValsAssignment)
+			for _, stmt := range getStmts {
+				cr.InsertAfter(stmt)
+			}
+			return false
+		}
+		return true
+	}, nil)
 }
 
 func wrapPutAccess(file *ast.File, node ast.Node) {
@@ -154,7 +190,7 @@ func modifyAST(file *ast.File, fset *token.FileSet) {
 	for node, cGroup := range cmap {
 		getComment := findMatchingComment(cGroup, GetAnnotation)
 		if getComment != nil {
-			wrapGetAccess(node, *getComment)
+			wrapGetAccess(file, node, *getComment)
 		}
 		if findMatchingComment(cGroup, PutAnnotation) != nil {
 			wrapPutAccess(file, node)

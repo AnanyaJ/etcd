@@ -58,9 +58,10 @@ package main
 // ) []byte {
 // 	op := lockOpFromBytes(data)
 
-// 	// TODO: allow gets to return more than one value
-// 	// note that RSM state can only be exposed through return values, not pointer parameters
-// 	isLocked := s.locks[op.LockName] // @get bool (need to specify type of return value)
+// 	isLocked, ok := s.locks[op.LockName] // @get bool bool (need to specify types of return values)
+// 	if !ok {
+// 		s.locks[op.LockName] = false // @put
+// 	}
 
 // 	var returnVal bool
 // 	switch op.OpType {
