@@ -111,10 +111,8 @@ func wrapGetAccess(file *ast.File, node ast.Node, getComment string) {
 		log.Fatalf("%s annotation must be followed by types of assignment", GetAnnotation)
 	}
 
-	getStmts := []ast.Stmt{}
-
-	// deconstruct return values
-	for i := numRetVals - 1; i >= 0; i-- {
+	indexExprs := []ast.Expr{}
+	for i := 0; i < numRetVals; i++ {
 		// assert type to match LHS
 		typedAccessCall := &ast.TypeAssertExpr{
 			X: &ast.IndexExpr{
@@ -127,22 +125,21 @@ func wrapGetAccess(file *ast.File, node ast.Node, getComment string) {
 			Type: &ast.Ident{Name: commentComponents[i+2]},
 		}
 
-		retValAssignment := &ast.AssignStmt{
-			Lhs: []ast.Expr{assignStmt.Lhs[i]},
-			Tok: assignStmt.Tok,
-			Rhs: []ast.Expr{typedAccessCall},
-		}
+		indexExprs = append(indexExprs, typedAccessCall)
+	}
 
-		getStmts = append(getStmts, retValAssignment)
+	// deconstruct return values and assign as appropriate
+	retValDeconstruction := &ast.AssignStmt{
+		Lhs: assignStmt.Lhs,
+		Tok: assignStmt.Tok,
+		Rhs: indexExprs,
 	}
 
 	// replace existing put node with access call and assignments
 	astutil.Apply(file, func(cr *astutil.Cursor) bool {
 		if cr.Node() == node {
 			cr.Replace(retValsAssignment)
-			for _, stmt := range getStmts {
-				cr.InsertAfter(stmt)
-			}
+			cr.InsertAfter(retValDeconstruction)
 			return false
 		}
 		return true
