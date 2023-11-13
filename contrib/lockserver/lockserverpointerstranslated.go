@@ -52,7 +52,7 @@ package main
 // func (s *LockServerPointers) processApplied() {
 // 	for appliedOp := range s.appliedC {
 // 		op := lockOpFromBytes(appliedOp.op)
-// 		result := boolFromBytes(appliedOp.result)
+// 		result := decodeNoErr(appliedOp.result)
 // 		s.opManager.reportOpFinished(op.OpNum, result)
 // 	}
 // }
@@ -108,7 +108,7 @@ package main
 // 	case IsLockedOp:
 // 		returnVal = isLocked
 // 	}
-// 	return marshal(returnVal)
+// 	return encodeNoErr(returnVal)
 // }
 // func (s *LockServerPointers) getSnapshot() ([]byte, error) {
 // 	return s.state, nil

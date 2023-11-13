@@ -5,14 +5,14 @@ package main
 // type ClientID int64
 
 // type OngoingOp struct {
-// 	opNum  int64
-// 	done   bool
-// 	result bool
+// 	OpNum  int64
+// 	Done   bool
+// 	Result bool
 // }
 
 // type LockServerRepl struct {
 // 	locks   map[string]bool
-// 	started map[ClientID]OngoingOp
+// 	ongoing map[ClientID]OngoingOp
 
 // 	proposeC  chan []byte
 // 	opManager *OpManager
@@ -22,6 +22,7 @@ package main
 // func newReplLockServer(proposeC chan []byte, appliedC <-chan AppliedOp) *LockServerRepl {
 // 	s := &LockServerRepl{
 // 		locks:     make(map[string]bool),
+// 		ongoing:   make(map[ClientID]OngoingOp),
 // 		proposeC:  proposeC,
 // 		opManager: newOpManager(),
 // 		appliedC:  appliedC,
@@ -53,20 +54,10 @@ package main
 // func (s *LockServerRepl) handleApplied(appliedOp AppliedOp) {
 // 	op := lockOpFromBytes(appliedOp.op)
 // 	var ongoingOp OngoingOp
-// 	fromBytes(appliedOp.result, &ongoingOp)
-// 	s.started[op.ClientID] = ongoingOp
-// 	s.opManager.reportOpFinished(op.OpNum, ongoingOp.result)
-// }
-
-// func (s *LockServerRepl) flushApplied() {
-// 	for {
-// 		select {
-// 		// op that has been executed to completion
-// 		case appliedOp := <-s.appliedC:
-// 			s.handleApplied(appliedOp)
-// 		default:
-// 			return
-// 		}
+// 	decodeNoErr(appliedOp.result, &ongoingOp)
+// 	if ongoingOp.Done {
+// 		s.ongoing[op.ClientID] = ongoingOp                       // store result in case of duplicate requests
+// 		s.opManager.reportOpFinished(op.OpNum, ongoingOp.Result) // inform client of completion
 // 	}
 // }
 
@@ -74,6 +65,18 @@ package main
 // 	// ops that been executed to completion
 // 	for appliedOp := range s.appliedC {
 // 		s.handleApplied(appliedOp)
+// 	}
+// }
+
+// func (s *LockServerRepl) flushApplied() {
+// 	// process any already-applied ops
+// 	for {
+// 		select {
+// 		case appliedOp := <-s.appliedC:
+// 			s.handleApplied(appliedOp)
+// 		default:
+// 			return
+// 		}
 // 	}
 // }
 
@@ -86,16 +89,11 @@ package main
 // 	op := lockOpFromBytes(data)
 
 // 	s.flushApplied() // make sure we know which operations have completed
-// 	started, ok := s.started[op.ClientID]
-// 	if ok {
-// 		if started.done {
-// 			// report again in case first one was lost
-// 			s.opManager.reportOpFinished(op.OpNum, started.result)
-// 		}
-// 		return marshal(started.result)
+// 	ongoing, ok := s.ongoing[op.ClientID]
+// 	if ok && ongoing.OpNum == op.OpNum {
+// 		return encodeNoErr(ongoing) // already started or finished applying
 // 	}
-
-// 	s.started[op.ClientID] = OngoingOp{opNum: op.OpNum, done: false}
+// 	s.ongoing[op.ClientID] = OngoingOp{OpNum: op.OpNum, Done: false}
 
 // 	isLocked, ok := s.locks[op.LockName] // @get bool bool (need to specify types of return values)
 // 	if !ok {
@@ -121,7 +119,7 @@ package main
 // 		returnVal = isLocked
 // 	}
 
-// 	return marshal(OngoingOp{opNum: op.OpNum, done: true, result: returnVal})
+// 	return encodeNoErr(OngoingOp{OpNum: op.OpNum, Done: true, Result: returnVal})
 // }
 
 // func (s *LockServerRepl) getSnapshot() ([]byte, error) {

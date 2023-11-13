@@ -27,8 +27,8 @@ func (s *SnapshotsTestState) setup_test() (blockingRaftNode *BlockingRaftNode[st
 	clusters := []string{"http://127.0.0.1:9021"}
 	proposeC = make(chan []byte)
 	confChangeC = make(chan raftpb.ConfChange)
-	blockingRaftNode, _, appliedC = newBlockingRaftNode[string](1, clusters, false, proposeC, confChangeC, true, s)
-	blockingRaftNode.start()
+	blockingRaftNode, _, appliedC = newBlockingRaftNode[string](1, clusters, false, proposeC, confChangeC, true)
+	blockingRaftNode.start(s)
 	return blockingRaftNode, proposeC, confChangeC, appliedC
 }
 
@@ -105,16 +105,16 @@ func (s *SnapshotsTestState) apply(
 		}
 		acquire("lock1")
 	case SnapshotTestOpD:
-		return marshal(isLocked("lock1"))
+		return encodeNoErr(isLocked("lock1"))
 	case SnapshotTestOpE:
 		release("lock2")
 	case SnapshotTestOpF:
-		return marshal(isLocked("lock2"))
+		return encodeNoErr(isLocked("lock2"))
 	case SnapshotTestOpG:
 		release("lock1")
 	}
 
-	return marshal(true)
+	return encodeNoErr(true)
 }
 
 func (s *SnapshotsTestState) getSnapshot() ([]byte, error) {

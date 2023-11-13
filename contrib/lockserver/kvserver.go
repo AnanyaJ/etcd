@@ -46,7 +46,8 @@ func (kv *KVServer) processApplied() {
 	// ops that been executed to completion
 	for appliedOp := range kv.appliedC {
 		op := kvStoreOpFromBytes(appliedOp.op)
-		result := boolFromBytes(appliedOp.result)
+		var result bool
+		decodeNoErr(appliedOp.result, &result)
 		kv.opManager.reportOpFinished(op.OpNum, result)
 	}
 }
@@ -71,7 +72,7 @@ func (kv *KVServer) apply(
 		}
 	}
 
-	return marshal(true)
+	return encodeNoErr(true)
 }
 
 func (kv *KVServer) getSnapshot() ([]byte, error) {

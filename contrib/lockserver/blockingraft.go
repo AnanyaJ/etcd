@@ -50,35 +50,29 @@ func newBlockingRaftNode[Key constraints.Ordered](
 	proposeC <-chan []byte,
 	confChangeC <-chan raftpb.ConfChange,
 	clearLog bool,
-	app BlockingApp[Key],
 ) (*BlockingRaftNode[Key], <-chan error, <-chan AppliedOp) {
 	var n *BlockingRaftNode[Key]
 	commitC, errorC, snapshotterReady := newRaftNode(id, peers, join, n.getSnapshot, proposeC, confChangeC, clearLog)
-
 	appliedC := make(chan AppliedOp)
-
-	// convert apply function into generic coroutine function
-	applyFunc := func(wait func(Key), signal func(Key), args ...interface{}) []byte {
-		op := args[0].([]byte)
-		return app.apply(op, n.access, wait, signal)
-	}
-	snapshotFunc := func() ([]byte, error) { return app.getSnapshot() }
-	loadSnapshotFunc := func(snapshot []byte) error { return app.loadSnapshot(snapshot) }
-
 	n = &BlockingRaftNode[Key]{
 		snapshotterReady: snapshotterReady,
 		commitC:          commitC,
 		errorC:           errorC,
 		appliedC:         appliedC,
-		applyFunc:        applyFunc,
-		snapshotFunc:     snapshotFunc,
-		loadSnapshotFunc: loadSnapshotFunc,
 		queues:           make(map[Key]Queue[CoroWithAccesses]),
 	}
 	return n, errorC, appliedC
 }
 
-func (n *BlockingRaftNode[Key]) start() {
+func (n *BlockingRaftNode[Key]) start(app BlockingApp[Key]) {
+	// convert apply function into generic coroutine function
+	n.applyFunc = func(wait func(Key), signal func(Key), args ...interface{}) []byte {
+		op := args[0].([]byte)
+		return app.apply(op, n.access, wait, signal)
+	}
+	n.snapshotFunc = func() ([]byte, error) { return app.getSnapshot() }
+	n.loadSnapshotFunc = func(snapshot []byte) error { return app.loadSnapshot(snapshot) }
+
 	n.loadSnapshot()
 	go n.applyCommits()
 }

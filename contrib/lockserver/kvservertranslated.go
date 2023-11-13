@@ -40,7 +40,7 @@ package main
 // func (kv *KVServer) processApplied() {
 // 	for appliedOp := range kv.appliedC {
 // 		op := kvStoreOpFromBytes(appliedOp.op)
-// 		result := boolFromBytes(appliedOp.result)
+// 		result := decodeNoErr(appliedOp.result)
 // 		kv.opManager.reportOpFinished(op.OpNum, result)
 // 	}
 // }
@@ -64,7 +64,7 @@ package main
 // 			})[0].(int)
 // 		}
 // 	}
-// 	return marshal(true)
+// 	return encodeNoErr(true)
 // }
 // func (kv *KVServer) getSnapshot() ([]byte, error) {
 // 	return json.Marshal(kv.kv)

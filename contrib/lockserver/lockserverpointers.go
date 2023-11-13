@@ -53,7 +53,8 @@ func (s *LockServerPointers) processApplied() {
 	// ops that been executed to completion
 	for appliedOp := range s.appliedC {
 		op := lockOpFromBytes(appliedOp.op)
-		result := boolFromBytes(appliedOp.result)
+		var result bool
+		decodeNoErr(appliedOp.result, &result)
 		s.opManager.reportOpFinished(op.OpNum, result)
 	}
 }
@@ -110,7 +111,7 @@ func (s *LockServerPointers) apply(
 		returnVal = isLocked
 	}
 
-	return marshal(returnVal)
+	return encodeNoErr(returnVal)
 }
 
 func (s *LockServerPointers) getSnapshot() ([]byte, error) {

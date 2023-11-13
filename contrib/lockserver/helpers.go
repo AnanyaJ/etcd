@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/gob"
-	"encoding/json"
 	"log"
 )
 
@@ -22,38 +21,18 @@ func decode(data []byte, x any) error {
 	return err
 }
 
-func equal(first []byte, second []byte) bool {
-	if len(first) != len(second) {
-		return false
+func encodeNoErr(x any) []byte {
+	buf := new(bytes.Buffer)
+	encoder := gob.NewEncoder(buf)
+	if err := encoder.Encode(x); err != nil {
+		log.Fatalf("Failed to perform gob encoding: %v", err)
 	}
-	for i, x := range first {
-		if x != second[i] {
-			return false
-		}
-	}
-	return true
+	return buf.Bytes()
 }
 
-func marshal(x any) []byte {
-	ret, err := json.Marshal(x)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return ret
-}
-
-func boolFromBytes(data []byte) bool {
-	var ret bool
-	err := json.Unmarshal(data, &ret)
-	if err != nil {
-		log.Fatalf("Failed to unmarshal result of applied op")
-	}
-	return ret
-}
-
-func fromBytes(data []byte, to any) {
-	err := json.Unmarshal(data, to)
-	if err != nil {
-		log.Fatalf("Failed to unmarshal result of applied op")
+func decodeNoErr(data []byte, x any) {
+	decoder := gob.NewDecoder(bytes.NewBuffer(data))
+	if err := decoder.Decode(x); err != nil {
+		log.Fatalf("Failed to perform gob decoding: %v", err)
 	}
 }

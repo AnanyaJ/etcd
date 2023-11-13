@@ -38,7 +38,8 @@ func (s *LockServerKV) IsLocked(lockName string, clientID ClientID, opNum int64)
 func (s *LockServerKV) processApplied() {
 	for appliedOp := range s.appliedC {
 		op := lockOpFromBytes(appliedOp.op)
-		result := boolFromBytes(appliedOp.result)
+		var result bool
+		decodeNoErr(appliedOp.result, &result)
 		s.opManager.reportOpFinished(op.OpNum, result)
 	}
 }
@@ -71,5 +72,5 @@ func (s *LockServerKV) apply(
 		returnVal = get(op.LockName)
 	}
 
-	return marshal(returnVal)
+	return encodeNoErr(returnVal)
 }
