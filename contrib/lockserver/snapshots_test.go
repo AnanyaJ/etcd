@@ -65,7 +65,7 @@ func (s *SnapshotsTestState) apply(
 	signal func(string),
 ) []byte {
 	var opType int
-	err := json.Unmarshal(data, &opType)
+	err := decode(data, &opType)
 	if err != nil {
 		log.Fatalf("Failed to unmarshal applied op")
 	}
@@ -126,7 +126,7 @@ func (s *SnapshotsTestState) loadSnapshot(snapshot []byte) error {
 }
 
 func marshal_optype(t *testing.T, opType int) []byte {
-	op, err := json.Marshal(&opType)
+	op, err := encode(opType)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func marshal_optype(t *testing.T, opType int) []byte {
 
 func check_result_and_get_op_type(t *testing.T, op AppliedOp) int {
 	var res bool
-	err := json.Unmarshal(op.result, &res)
+	err := decode(op.result, &res)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func check_result_and_get_op_type(t *testing.T, op AppliedOp) int {
 	}
 
 	var opType int
-	err = json.Unmarshal(op.op, &opType)
+	err = decode(op.op, &opType)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -30,7 +30,7 @@ func newKVServer(proposeC chan []byte, appliedC <-chan AppliedOp) *KVServer {
 func (kv *KVServer) startOp(opType int, key string, val int, opNum int64) bool {
 	op := KVServerOp{OpNum: opNum, OpType: opType, Key: key, Val: val}
 	result := kv.opManager.addOp(opNum)
-	kv.proposeC <- op.marshal()
+	kv.proposeC <- encodeNoErr(op)
 	return <-result
 }
 
@@ -45,7 +45,8 @@ func (kv *KVServer) Wait(key string, untilValue int, opNum int64) bool {
 func (kv *KVServer) processApplied() {
 	// ops that been executed to completion
 	for appliedOp := range kv.appliedC {
-		op := kvStoreOpFromBytes(appliedOp.op)
+		var op KVServerOp
+		decodeNoErr(appliedOp.op, &op)
 		var result bool
 		decodeNoErr(appliedOp.result, &result)
 		kv.opManager.reportOpFinished(op.OpNum, result)
@@ -58,7 +59,8 @@ func (kv *KVServer) apply(
 	wait func(string),
 	signal func(string),
 ) []byte {
-	op := kvStoreOpFromBytes(data)
+	var op KVServerOp
+	decodeNoErr(data, &op)
 
 	switch op.OpType {
 	case IncrementOp:
