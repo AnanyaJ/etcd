@@ -6,6 +6,7 @@ import (
 )
 
 type LockOp struct {
+	ClientID ClientID
 	OpNum    int64
 	OpType   int
 	LockName string

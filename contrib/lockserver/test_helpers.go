@@ -45,8 +45,8 @@ func translated_lockserver_setup() (srv *httptest.Server, cli *http.Client, prop
 	confChangeC = make(chan raftpb.ConfChange)
 
 	var ls *LockServerRepl
-	raftNode := newBlockingRaftNode[string](1, clusters, false, proposeC, confChangeC, true, ls)
-	ls = newReplLockServer(proposeC, raftNode.appliedC)
+	raftNode, _, appliedC := newBlockingRaftNode[string](1, clusters, false, proposeC, confChangeC, true, ls)
+	ls = newReplLockServer(proposeC, appliedC)
 	raftNode.start()
 
 	srv = httptest.NewServer(&httpLSAPI{

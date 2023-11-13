@@ -36,39 +36,44 @@ func main() {
 	defer close(confChangeC)
 
 	getSnapshot := func() ([]byte, error) { return nil, nil }
-	commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC, *clearLog)
-	snapshotter := <-snapshotterReady
 
-	var lockServer LockServer
 	switch *impl {
 	case "simple":
-		lockServer = newSimpleLockServer()
+		lockServer := newSimpleLockServer()
+		serveHTTPLSAPI(lockServer, *lsport, confChangeC, make(<-chan error))
 	case "condvar":
-		lockServer = newCondVarLockServer()
+		lockServer := newCondVarLockServer()
+		serveHTTPLSAPI(lockServer, *lsport, confChangeC, make(<-chan error))
 	case "queues":
-		lockServer = newQueueLockServer(snapshotter, proposeC, commitC, errorC)
+		commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC, *clearLog)
+		snapshotter := <-snapshotterReady
+		lockServer := newQueueLockServer(snapshotter, proposeC, commitC, errorC)
+		serveHTTPLSAPI(lockServer, *lsport, confChangeC, errorC)
 	case "coros":
-		lockServer = newCoroLockServer(snapshotter, proposeC, commitC, errorC)
+		commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC, *clearLog)
+		snapshotter := <-snapshotterReady
+		lockServer := newCoroLockServer(snapshotter, proposeC, commitC, errorC)
+		serveHTTPLSAPI(lockServer, *lsport, confChangeC, errorC)
 	case "kvlocks":
+		commitC, errorC, _ := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC, *clearLog)
 		var kvLockServer *LockServerKV
 		appliedC := newBlockingKVStore[string, bool](commitC, errorC, kvLockServer.apply)
 		kvLockServer = newKVLockServer(proposeC, appliedC)
-		lockServer = kvLockServer
+		serveHTTPLSAPI(kvLockServer, *lsport, confChangeC, errorC)
 	case "blockingraft":
 		var lockServerRepl *LockServerRepl
-		blockingRaftNode := newBlockingRaftNode[string](*id, strings.Split(*cluster, ","), *join, proposeC, confChangeC, *clearLog, lockServerRepl)
-		lockServerRepl = newReplLockServer(proposeC, blockingRaftNode.appliedC)
+		blockingRaftNode, errorC, appliedC := newBlockingRaftNode[string](*id, strings.Split(*cluster, ","), *join, proposeC, confChangeC, *clearLog, lockServerRepl)
+		lockServerRepl = newReplLockServer(proposeC, appliedC)
 		blockingRaftNode.start()
-		lockServer = lockServerRepl
+		// the http handler will propose updates to raft
+		serveHTTPLSAPI(lockServerRepl, *lsport, confChangeC, errorC)
 	case "kv":
 		var kvServer *KVServer
-		blockingRaftNode := newBlockingRaftNode[string](*id, strings.Split(*cluster, ","), *join, proposeC, confChangeC, *clearLog, kvServer)
-		kvServer = newKVServer(proposeC, blockingRaftNode.appliedC)
+		blockingRaftNode, errorC, appliedC := newBlockingRaftNode[string](*id, strings.Split(*cluster, ","), *join, proposeC, confChangeC, *clearLog, kvServer)
+		kvServer = newKVServer(proposeC, appliedC)
 		blockingRaftNode.start()
 		serveHTTPKVAPI(kvServer, *lsport, confChangeC, errorC)
 		return
 	}
 
-	// the key-value http handler will propose updates to raft
-	serveHTTPLSAPI(lockServer, *lsport, confChangeC, errorC)
 }

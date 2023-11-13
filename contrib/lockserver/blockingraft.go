@@ -51,7 +51,7 @@ func newBlockingRaftNode[Key constraints.Ordered](
 	confChangeC <-chan raftpb.ConfChange,
 	clearLog bool,
 	app BlockingApp[Key],
-) *BlockingRaftNode[Key] {
+) (*BlockingRaftNode[Key], <-chan error, <-chan AppliedOp) {
 	var n *BlockingRaftNode[Key]
 	commitC, errorC, snapshotterReady := newRaftNode(id, peers, join, n.getSnapshot, proposeC, confChangeC, clearLog)
 
@@ -75,7 +75,7 @@ func newBlockingRaftNode[Key constraints.Ordered](
 		loadSnapshotFunc: loadSnapshotFunc,
 		queues:           make(map[Key]Queue[CoroWithAccesses]),
 	}
-	return n
+	return n, errorC, appliedC
 }
 
 func (n *BlockingRaftNode[Key]) start() {

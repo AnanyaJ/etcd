@@ -18,7 +18,7 @@ func newSimpleLockServer() *SimpleLockServer {
 	return &SimpleLockServer{mu: &mu, locks: make(map[string]bool)}
 }
 
-func (s *SimpleLockServer) Acquire(lockName string, opNum int64) {
+func (s *SimpleLockServer) Acquire(lockName string, clientID ClientID, opNum int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -32,7 +32,7 @@ func (s *SimpleLockServer) Acquire(lockName string, opNum int64) {
 	s.locks[lockName] = true
 }
 
-func (s *SimpleLockServer) Release(lockName string, opNum int64) bool {
+func (s *SimpleLockServer) Release(lockName string, clientID ClientID, opNum int64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -44,7 +44,7 @@ func (s *SimpleLockServer) Release(lockName string, opNum int64) bool {
 	return true
 }
 
-func (s *SimpleLockServer) IsLocked(lockName string, opNum int64) bool {
+func (s *SimpleLockServer) IsLocked(lockName string, clientID ClientID, opNum int64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

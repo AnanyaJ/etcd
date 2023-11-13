@@ -34,8 +34,8 @@ func equal(first []byte, second []byte) bool {
 	return true
 }
 
-func marshal(b bool) []byte {
-	ret, err := json.Marshal(b)
+func marshal(x any) []byte {
+	ret, err := json.Marshal(x)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -49,4 +49,11 @@ func boolFromBytes(data []byte) bool {
 		log.Fatalf("Failed to unmarshal result of applied op")
 	}
 	return ret
+}
+
+func fromBytes(data []byte, to any) {
+	err := json.Unmarshal(data, to)
+	if err != nil {
+		log.Fatalf("Failed to unmarshal result of applied op")
+	}
 }

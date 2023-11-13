@@ -23,13 +23,13 @@ type SnapshotsTestState struct {
 	locks map[string]bool
 }
 
-func (s *SnapshotsTestState) setup_test() (blockingRaftNode *BlockingRaftNode[string], proposeC chan []byte, confChangeC chan raftpb.ConfChange) {
+func (s *SnapshotsTestState) setup_test() (blockingRaftNode *BlockingRaftNode[string], proposeC chan []byte, confChangeC chan raftpb.ConfChange, appliedC <-chan AppliedOp) {
 	clusters := []string{"http://127.0.0.1:9021"}
 	proposeC = make(chan []byte)
 	confChangeC = make(chan raftpb.ConfChange)
-	blockingRaftNode = newBlockingRaftNode[string](1, clusters, false, proposeC, confChangeC, true, s)
+	blockingRaftNode, _, appliedC = newBlockingRaftNode[string](1, clusters, false, proposeC, confChangeC, true, s)
 	blockingRaftNode.start()
-	return blockingRaftNode, proposeC, confChangeC
+	return blockingRaftNode, proposeC, confChangeC, appliedC
 }
 
 func stop_raft(proposeC chan []byte, confChangeC chan raftpb.ConfChange) {
@@ -44,7 +44,7 @@ func (s *SnapshotsTestState) restart_from_snapshot(
 	node *BlockingRaftNode[string],
 	proposeC chan []byte,
 	confChangeC chan raftpb.ConfChange,
-) (nodeNew *BlockingRaftNode[string], proposeCNew chan []byte, confChangeCNew chan raftpb.ConfChange) {
+) (nodeNew *BlockingRaftNode[string], proposeCNew chan []byte, confChangeCNew chan raftpb.ConfChange, appliedC <-chan AppliedOp) {
 	snapshot, err := node.getSnapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -53,9 +53,9 @@ func (s *SnapshotsTestState) restart_from_snapshot(
 	stop_raft(proposeC, confChangeC)
 	s = &SnapshotsTestState{locks: make(map[string]bool)}
 
-	node, proposeCNew, confChangeCNew = s.setup_test()
+	node, proposeCNew, confChangeCNew, appliedC = s.setup_test()
 	node.recoverFromSnapshot(snapshot)
-	return node, proposeCNew, confChangeCNew
+	return node, proposeCNew, confChangeCNew, appliedC
 }
 
 func (s *SnapshotsTestState) apply(
@@ -159,11 +159,11 @@ func check_op_matches(t *testing.T, expectedOp int, receivedOp int) {
 
 func TestSnapshots(t *testing.T) {
 	state := &SnapshotsTestState{locks: make(map[string]bool)}
-	node, proposeC, confChangeC := state.setup_test()
+	node, proposeC, confChangeC, appliedC := state.setup_test()
 
 	// acquire lock2
 	proposeC <- marshal_optype(t, SnapshotTestOpA)
-	doneOp := check_result_and_get_op_type(t, <-node.appliedC)
+	doneOp := check_result_and_get_op_type(t, <-appliedC)
 	check_op_matches(t, doneOp, SnapshotTestOpA)
 
 	// will block on lock2 since lock1 is free
@@ -171,19 +171,19 @@ func TestSnapshots(t *testing.T) {
 
 	// acquire lock1
 	proposeC <- marshal_optype(t, SnapshotTestOpB)
-	doneOp = check_result_and_get_op_type(t, <-node.appliedC)
+	doneOp = check_result_and_get_op_type(t, <-appliedC)
 	check_op_matches(t, doneOp, SnapshotTestOpB)
 
-	node, proposeC, confChangeC = state.restart_from_snapshot(t, node, proposeC, confChangeC)
+	node, proposeC, confChangeC, appliedC = state.restart_from_snapshot(t, node, proposeC, confChangeC)
 
 	// make sure that lock1 is still locked
 	proposeC <- marshal_optype(t, SnapshotTestOpD)
-	doneOp = check_result_and_get_op_type(t, <-node.appliedC)
+	doneOp = check_result_and_get_op_type(t, <-appliedC)
 	check_op_matches(t, doneOp, SnapshotTestOpD)
 
 	// release lock2 so that op C can acquire it
 	proposeC <- marshal_optype(t, SnapshotTestOpE)
-	doneOp = check_result_and_get_op_type(t, <-node.appliedC)
+	doneOp = check_result_and_get_op_type(t, <-appliedC)
 	check_op_matches(t, doneOp, SnapshotTestOpE)
 
 	// make sure that lock2 is still locked (by op C)
@@ -191,23 +191,23 @@ func TestSnapshots(t *testing.T) {
 	// Even though after replaying the snapshot, lock1 is held, op C should still try to acquire lock2
 	// because otherwise its behavior is not deterministic. Op C will now be blocking on lock1.
 	proposeC <- marshal_optype(t, SnapshotTestOpF)
-	doneOp = check_result_and_get_op_type(t, <-node.appliedC)
+	doneOp = check_result_and_get_op_type(t, <-appliedC)
 	check_op_matches(t, doneOp, SnapshotTestOpF)
 
-	node, proposeC, confChangeC = state.restart_from_snapshot(t, node, proposeC, confChangeC)
+	node, proposeC, confChangeC, appliedC = state.restart_from_snapshot(t, node, proposeC, confChangeC)
 
 	// release lock1 so that op C can finish
 	proposeC <- marshal_optype(t, SnapshotTestOpG)
 
-	doneOp1 := check_result_and_get_op_type(t, <-node.appliedC)
-	doneOp2 := check_result_and_get_op_type(t, <-node.appliedC)
+	doneOp1 := check_result_and_get_op_type(t, <-appliedC)
+	doneOp2 := check_result_and_get_op_type(t, <-appliedC)
 	if !((doneOp1 == SnapshotTestOpC && doneOp2 == SnapshotTestOpG) || (doneOp1 == SnapshotTestOpG && doneOp2 == SnapshotTestOpC)) {
 		t.Fatalf("Expected ops %d and %d to be applied but got %d and %d instead", SnapshotTestOpC, SnapshotTestOpG, doneOp1, doneOp2)
 	}
 
 	// make sure that lock1 is still locked (now by op C)
 	proposeC <- marshal_optype(t, SnapshotTestOpD)
-	doneOp = check_result_and_get_op_type(t, <-node.appliedC)
+	doneOp = check_result_and_get_op_type(t, <-appliedC)
 	check_op_matches(t, doneOp, SnapshotTestOpD)
 
 	stop_raft(proposeC, confChangeC)

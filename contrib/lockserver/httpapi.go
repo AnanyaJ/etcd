@@ -31,8 +31,9 @@ type httpLSAPI struct {
 }
 
 type Request struct {
-	Lock  string
-	OpNum int64
+	Lock     string
+	ClientID ClientID
+	OpNum    int64
 }
 
 func (h *httpLSAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -55,12 +56,12 @@ func (h *httpLSAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			var ret bool
 			if key == "/acquire" {
-				h.server.Acquire(req.Lock, req.OpNum)
+				h.server.Acquire(req.Lock, req.ClientID, req.OpNum)
 				ret = true
 			} else if key == "/release" {
-				ret = h.server.Release(req.Lock, req.OpNum)
+				ret = h.server.Release(req.Lock, req.ClientID, req.OpNum)
 			} else if key == "/islocked" {
-				ret = h.server.IsLocked(req.Lock, req.OpNum)
+				ret = h.server.IsLocked(req.Lock, req.ClientID, req.OpNum)
 			}
 
 			if ret {
