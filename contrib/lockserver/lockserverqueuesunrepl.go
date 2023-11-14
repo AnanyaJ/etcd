@@ -12,10 +12,13 @@ type UnreplQueueLockServer struct {
 // the Acquire operations. Currently uses a WAL that is persisted on disk, and
 // supports snapshotting.
 func newUnreplQueueLockServer() *UnreplQueueLockServer {
+	proposeC := make(chan LockOp)
 	s := &UnreplQueueLockServer{
+		proposeC:  proposeC,
 		opManager: newOpManager(),
 		locks:     make(map[string]*LockQueue[LockOp]),
 	}
+	go s.applyProposals()
 	return s
 }
 
@@ -38,7 +41,7 @@ func (s *UnreplQueueLockServer) IsLocked(lockName string, clientID ClientID, opN
 	return s.startOp(IsLockedOp, lockName, clientID, opNum)
 }
 
-func (s *UnreplQueueLockServer) applyProposals(op LockOp) {
+func (s *UnreplQueueLockServer) applyProposals() {
 	for op := range s.proposeC {
 		s.addLock(op.LockName)
 		lock := s.locks[op.LockName]
