@@ -9,11 +9,12 @@ import (
 // by repeatedly sleeping for one second until the lock is free. This server
 // could be replicated with e.g. Raft using polling and conditional puts.
 type SimpleLockServer struct {
-	mu    *sync.Mutex
-	locks map[string]bool
+	mu      *sync.Mutex
+	locks   map[string]bool
+	timeout int
 }
 
-func newSimpleLockServer() *SimpleLockServer {
+func newSimpleLockServer(timeout int) *SimpleLockServer {
 	var mu sync.Mutex
 	return &SimpleLockServer{mu: &mu, locks: make(map[string]bool)}
 }
@@ -25,7 +26,7 @@ func (s *SimpleLockServer) Acquire(lockName string, clientID ClientID, opNum int
 	for s.locks[lockName] {
 		s.mu.Unlock()
 		// lock is not available so sleep and try again
-		time.Sleep(time.Second)
+		time.Sleep(time.Duration(s.timeout) * time.Millisecond)
 		s.mu.Lock()
 	}
 

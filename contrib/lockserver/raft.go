@@ -77,7 +77,7 @@ type raftNode struct {
 	logger *zap.Logger
 }
 
-var defaultSnapshotCount uint64 = 2
+var defaultSnapshotCount uint64 = 10000
 
 // newRaftNode initiates a raft instance and returns a committed log entry
 // channel and error channel. Proposals for log updates are sent over the

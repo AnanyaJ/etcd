@@ -28,6 +28,7 @@ func main() {
 	join := flag.Bool("join", false, "join an existing cluster")
 	impl := flag.String("impl", "blockingraft", "lock server implementation to use (simple, condvar, queues, coros, kvlocks, blockingraft, kv)")
 	clearLog := flag.Bool("clearlog", false, "whether to use a fresh log, removing all previous persistent state")
+	timeout := flag.Int("timeout", 100, "number of milliseconds simple lock server waits between acquire attempts")
 	flag.Parse()
 
 	proposeC := make(chan []byte)
@@ -39,7 +40,7 @@ func main() {
 
 	switch *impl {
 	case "simple":
-		lockServer := newSimpleLockServer()
+		lockServer := newSimpleLockServer(*timeout)
 		serveHTTPLSAPI(lockServer, *lsport, confChangeC, make(<-chan error))
 	case "condvar":
 		lockServer := newCondVarLockServer()
