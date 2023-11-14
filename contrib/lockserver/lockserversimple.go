@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"sync"
 	"time"
 )
@@ -15,8 +16,9 @@ type SimpleLockServer struct {
 }
 
 func newSimpleLockServer(timeout int) *SimpleLockServer {
+	log.Printf("Using simple lock server with timeout %d \n", timeout)
 	var mu sync.Mutex
-	return &SimpleLockServer{mu: &mu, locks: make(map[string]bool)}
+	return &SimpleLockServer{mu: &mu, locks: make(map[string]bool), timeout: timeout}
 }
 
 func (s *SimpleLockServer) Acquire(lockName string, clientID ClientID, opNum int64) {
