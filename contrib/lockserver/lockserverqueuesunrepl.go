@@ -1,7 +1,7 @@
 package main
 
 type UnreplQueueLockServer struct {
-	proposeC  chan []byte
+	proposeC  chan LockOp
 	opManager *OpManager
 	locks     map[string]*LockQueue[LockOp]
 }
@@ -12,21 +12,17 @@ type UnreplQueueLockServer struct {
 // the Acquire operations. Currently uses a WAL that is persisted on disk, and
 // supports snapshotting.
 func newUnreplQueueLockServer() *UnreplQueueLockServer {
-	proposeC := make(chan []byte)
 	s := &UnreplQueueLockServer{
-		proposeC:  proposeC,
 		opManager: newOpManager(),
 		locks:     make(map[string]*LockQueue[LockOp]),
 	}
-	// apply commits from raft until error
-	go s.applyProposals()
 	return s
 }
 
 func (s *UnreplQueueLockServer) startOp(opType int, lockName string, clientID ClientID, opNum int64) bool {
 	op := LockOp{OpType: opType, LockName: lockName, ClientID: clientID, OpNum: opNum}
 	result := s.opManager.addOp(opNum)
-	s.proposeC <- op.marshal()
+	go s.applyOp(op)
 	return <-result
 }
 
@@ -42,38 +38,35 @@ func (s *UnreplQueueLockServer) IsLocked(lockName string, clientID ClientID, opN
 	return s.startOp(IsLockedOp, lockName, clientID, opNum)
 }
 
-func (s *UnreplQueueLockServer) applyProposals() {
-	for proposedOp := range s.proposeC {
-		op := lockOpFromBytes(proposedOp)
-		s.addLock(op.LockName)
-		lock := s.locks[op.LockName]
+func (s *UnreplQueueLockServer) applyOp(op LockOp) {
+	s.addLock(op.LockName)
+	lock := s.locks[op.LockName]
 
-		switch op.OpType {
-		case AcquireOp:
-			if lock.IsLocked {
-				lock.Queue = append(lock.Queue, op)
-			} else {
-				lock.IsLocked = true
-				s.opManager.reportOpFinished(op.OpNum, true)
-			}
-		case ReleaseOp:
-			if !lock.IsLocked {
-				s.opManager.reportOpFinished(op.OpNum, false) // lock already free
-			}
-
-			if len(lock.Queue) > 0 {
-				// pass lock to next waiting op
-				unblocked := lock.Queue[0]
-				lock.Queue = lock.Queue[1:]
-				s.opManager.reportOpFinished(unblocked.OpNum, true)
-			} else {
-				lock.IsLocked = false
-			}
-
+	switch op.OpType {
+	case AcquireOp:
+		if lock.IsLocked {
+			lock.Queue = append(lock.Queue, op)
+		} else {
+			lock.IsLocked = true
 			s.opManager.reportOpFinished(op.OpNum, true)
-		case IsLockedOp:
-			s.opManager.reportOpFinished(op.OpNum, lock.IsLocked)
 		}
+	case ReleaseOp:
+		if !lock.IsLocked {
+			s.opManager.reportOpFinished(op.OpNum, false) // lock already free
+		}
+
+		if len(lock.Queue) > 0 {
+			// pass lock to next waiting op
+			unblocked := lock.Queue[0]
+			lock.Queue = lock.Queue[1:]
+			s.opManager.reportOpFinished(unblocked.OpNum, true)
+		} else {
+			lock.IsLocked = false
+		}
+
+		s.opManager.reportOpFinished(op.OpNum, true)
+	case IsLockedOp:
+		s.opManager.reportOpFinished(op.OpNum, lock.IsLocked)
 	}
 }
 
