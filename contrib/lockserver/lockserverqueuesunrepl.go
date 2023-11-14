@@ -22,7 +22,7 @@ func newUnreplQueueLockServer() *UnreplQueueLockServer {
 func (s *UnreplQueueLockServer) startOp(opType int, lockName string, clientID ClientID, opNum int64) bool {
 	op := LockOp{OpType: opType, LockName: lockName, ClientID: clientID, OpNum: opNum}
 	result := s.opManager.addOp(opNum)
-	go s.applyOp(op)
+	s.proposeC <- op
 	return <-result
 }
 
@@ -38,35 +38,37 @@ func (s *UnreplQueueLockServer) IsLocked(lockName string, clientID ClientID, opN
 	return s.startOp(IsLockedOp, lockName, clientID, opNum)
 }
 
-func (s *UnreplQueueLockServer) applyOp(op LockOp) {
-	s.addLock(op.LockName)
-	lock := s.locks[op.LockName]
+func (s *UnreplQueueLockServer) applyProposals(op LockOp) {
+	for op := range s.proposeC {
+		s.addLock(op.LockName)
+		lock := s.locks[op.LockName]
 
-	switch op.OpType {
-	case AcquireOp:
-		if lock.IsLocked {
-			lock.Queue = append(lock.Queue, op)
-		} else {
-			lock.IsLocked = true
+		switch op.OpType {
+		case AcquireOp:
+			if lock.IsLocked {
+				lock.Queue = append(lock.Queue, op)
+			} else {
+				lock.IsLocked = true
+				s.opManager.reportOpFinished(op.OpNum, true)
+			}
+		case ReleaseOp:
+			if !lock.IsLocked {
+				s.opManager.reportOpFinished(op.OpNum, false) // lock already free
+			}
+
+			if len(lock.Queue) > 0 {
+				// pass lock to next waiting op
+				unblocked := lock.Queue[0]
+				lock.Queue = lock.Queue[1:]
+				s.opManager.reportOpFinished(unblocked.OpNum, true)
+			} else {
+				lock.IsLocked = false
+			}
+
 			s.opManager.reportOpFinished(op.OpNum, true)
+		case IsLockedOp:
+			s.opManager.reportOpFinished(op.OpNum, lock.IsLocked)
 		}
-	case ReleaseOp:
-		if !lock.IsLocked {
-			s.opManager.reportOpFinished(op.OpNum, false) // lock already free
-		}
-
-		if len(lock.Queue) > 0 {
-			// pass lock to next waiting op
-			unblocked := lock.Queue[0]
-			lock.Queue = lock.Queue[1:]
-			s.opManager.reportOpFinished(unblocked.OpNum, true)
-		} else {
-			lock.IsLocked = false
-		}
-
-		s.opManager.reportOpFinished(op.OpNum, true)
-	case IsLockedOp:
-		s.opManager.reportOpFinished(op.OpNum, lock.IsLocked)
 	}
 }
 
