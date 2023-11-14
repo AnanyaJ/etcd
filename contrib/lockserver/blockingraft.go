@@ -52,7 +52,8 @@ func newBlockingRaftNode[Key constraints.Ordered](
 	clearLog bool,
 ) (*BlockingRaftNode[Key], <-chan error, <-chan AppliedOp) {
 	var n *BlockingRaftNode[Key]
-	commitC, errorC, snapshotterReady := newRaftNode(id, peers, join, n.getSnapshot, proposeC, confChangeC, clearLog)
+	getSnapshot := func() ([]byte, error) { return n.getSnapshot() }
+	commitC, errorC, snapshotterReady := newRaftNode(id, peers, join, getSnapshot, proposeC, confChangeC, clearLog)
 	appliedC := make(chan AppliedOp)
 	n = &BlockingRaftNode[Key]{
 		snapshotterReady: snapshotterReady,
@@ -156,12 +157,12 @@ func (n *BlockingRaftNode[Key]) getSnapshot() ([]byte, error) {
 	// store queues of partially completed operations
 	queues := make(map[Key]Queue[PartialOp])
 	for key, ops := range n.queues {
-		PartialOpTs := Queue[PartialOp]{}
+		partialOps := Queue[PartialOp]{}
 		for _, op := range ops {
 			// save everything except actual coroutine which cannot be serialized
-			PartialOpTs = append(PartialOpTs, PartialOp{op.OpData, op.Accesses, op.NumResumes})
+			partialOps = append(partialOps, PartialOp{op.OpData, op.Accesses, op.NumResumes})
 		}
-		queues[key] = PartialOpTs
+		queues[key] = partialOps
 	}
 	// also save application's RSM state
 	state, err := n.snapshotFunc()

@@ -21,7 +21,7 @@ func queue_lockserver_setup() (srv *httptest.Server, cli *http.Client, proposeC 
 	proposeC = make(chan []byte)
 	confChangeC = make(chan raftpb.ConfChange)
 
-	var ls LockServerSnapshot
+	var ls LockServerWithSnapshots
 	getSnapshot := func() ([]byte, error) { return ls.getSnapshot() }
 	commitC, errorC, snapshotterReady := newRaftNode(1, clusters, false, getSnapshot, proposeC, confChangeC, true)
 
