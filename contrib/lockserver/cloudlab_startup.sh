@@ -7,3 +7,6 @@ export PATH=$PATH:/usr/local/go/bin
 go version
 
 rm go1.21.4.linux-amd64.tar.gz
+
+# build code
+go build -o lockserver
