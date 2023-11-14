@@ -26,7 +26,7 @@ func main() {
 	id := flag.Int("id", 1, "node ID")
 	lsport := flag.Int("port", 12380, "lock server port")
 	join := flag.Bool("join", false, "join an existing cluster")
-	impl := flag.String("impl", "blockingraft", "lock server implementation to use (simple, condvar, queues, coros, kvlocks, blockingraft, kv)")
+	impl := flag.String("impl", "blockingraft", "lock server implementation to use (simple, condvar, unreplcoros, queues, coros, kvlocks, blockingraft, kv)")
 	clearLog := flag.Bool("clearlog", false, "whether to use a fresh log, removing all previous persistent state")
 	timeout := flag.Int("timeout", 100, "number of milliseconds simple lock server waits between acquire attempts")
 	flag.Parse()
@@ -44,6 +44,9 @@ func main() {
 		serveHTTPLSAPI(lockServer, *lsport, confChangeC, make(<-chan error))
 	case "condvar":
 		lockServer := newCondVarLockServer()
+		serveHTTPLSAPI(lockServer, *lsport, confChangeC, make(<-chan error))
+	case "unreplcoros":
+		lockServer := newUnreplCoroLockServer()
 		serveHTTPLSAPI(lockServer, *lsport, confChangeC, make(<-chan error))
 	case "queues":
 		commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC, *clearLog)
