@@ -6,7 +6,7 @@ type LockCoroUnrepl struct {
 }
 
 type UnreplCoroLockServer struct {
-	proposeC  chan []byte
+	proposeC  chan LockOp
 	opManager *OpManager
 	locks     map[string]*LockQueue[LockCoro]
 }
@@ -17,7 +17,7 @@ type UnreplCoroLockServer struct {
 // the Acquire and Release operations. Currently uses a WAL that is persisted
 // on disk, but does not support snapshotting yet.
 func newUnreplCoroLockServer() *UnreplCoroLockServer {
-	proposeC := make(chan []byte)
+	proposeC := make(chan LockOp)
 	s := &UnreplCoroLockServer{
 		proposeC:  proposeC,
 		opManager: newOpManager(),
@@ -30,7 +30,7 @@ func newUnreplCoroLockServer() *UnreplCoroLockServer {
 func (s *UnreplCoroLockServer) startOp(opType int, lockName string, clientID ClientID, opNum int64) bool {
 	op := LockOp{OpType: opType, LockName: lockName, ClientID: clientID, OpNum: opNum}
 	result := s.opManager.addOp(opNum)
-	s.proposeC <- op.marshal()
+	s.proposeC <- op
 	return <-result
 }
 
@@ -47,9 +47,7 @@ func (s *UnreplCoroLockServer) IsLocked(lockName string, clientID ClientID, opNu
 }
 
 func (s *UnreplCoroLockServer) applyProposals() {
-	for proposedOp := range s.proposeC {
-		op := lockOpFromBytes(proposedOp)
-
+	for op := range s.proposeC {
 		var apply func(lockName string, wait func(string), signal func(string)) bool
 		switch op.OpType {
 		case AcquireOp:
