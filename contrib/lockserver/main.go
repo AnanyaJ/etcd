@@ -26,7 +26,7 @@ func main() {
 	id := flag.Int("id", 1, "node ID")
 	lsport := flag.Int("port", 12380, "lock server port")
 	join := flag.Bool("join", false, "join an existing cluster")
-	impl := flag.String("impl", "blockingraft", "lock server implementation to use (simple, condvar, unreplcoros, unreplqueues, queues, coros, kvlocks, blockingraft, kv)")
+	impl := flag.String("impl", "blockingraft", "lock server implementation to use (condvar, unreplsimple, unreplcoros, unreplqueues, simple, queues, coros, kvlocks, blockingraft, kv)")
 	clearLog := flag.Bool("clearlog", false, "whether to use a fresh log, removing all previous persistent state")
 	timeout := flag.Int("timeout", 100, "number of milliseconds simple lock server waits between acquire attempts")
 	flag.Parse()
@@ -39,11 +39,11 @@ func main() {
 	getSnapshot := func() ([]byte, error) { return nil, nil }
 
 	switch *impl {
-	case "simple":
-		lockServer := newSimpleLockServer(*timeout)
-		serveHTTPLSAPI(lockServer, *lsport, confChangeC, make(<-chan error))
 	case "condvar":
 		lockServer := newCondVarLockServer()
+		serveHTTPLSAPI(lockServer, *lsport, confChangeC, make(<-chan error))
+	case "unreplsimple":
+		lockServer := newUnreplSimpleLockServer(*timeout)
 		serveHTTPLSAPI(lockServer, *lsport, confChangeC, make(<-chan error))
 	case "unreplqueues":
 		lockServer := newUnreplQueueLockServer()
@@ -51,6 +51,11 @@ func main() {
 	case "unreplcoros":
 		lockServer := newUnreplCoroLockServer()
 		serveHTTPLSAPI(lockServer, *lsport, confChangeC, make(<-chan error))
+	case "simple":
+		commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC, *clearLog)
+		snapshotter := <-snapshotterReady
+		lockServer := newSimpleLockServer(snapshotter, proposeC, commitC, errorC, *timeout)
+		serveHTTPLSAPI(lockServer, *lsport, confChangeC, errorC)
 	case "queues":
 		commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC, *clearLog)
 		snapshotter := <-snapshotterReady
