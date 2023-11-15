@@ -3,8 +3,6 @@ package main
 import (
 	"log"
 
-	"github.com/gammazero/deque"
-
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
 	"go.etcd.io/raft/v3/raftpb"
 	"golang.org/x/exp/constraints"
@@ -38,7 +36,7 @@ type BlockingRaftNode[Key constraints.Ordered] struct {
 	snapshotFunc     func() ([]byte, error)
 	loadSnapshotFunc func([]byte) error
 
-	queues map[Key]*deque.Deque[CoroWithAccesses]
+	queues map[Key]Queue[CoroWithAccesses]
 
 	currentlyExecuting *CoroWithAccesses
 	replaying          bool
@@ -62,7 +60,7 @@ func newBlockingRaftNode[Key constraints.Ordered](
 		commitC:          commitC,
 		errorC:           errorC,
 		appliedC:         appliedC,
-		queues:           make(map[Key]*deque.Deque[CoroWithAccesses]),
+		queues:           make(map[Key]Queue[CoroWithAccesses]),
 	}
 	return n, errorC, appliedC
 }
@@ -129,18 +127,16 @@ func (n *BlockingRaftNode[Key]) applyCommits() {
 				switch status.msgType() {
 				case WaitMsg:
 					key := status.(Wait[Key]).key
-					if n.queues[key] == nil {
-						n.queues[key] = &deque.Deque[CoroWithAccesses]{}
-					}
-					n.queues[key].PushBack(next)
+					n.queues[key] = append(n.queues[key], next)
 				case SignalMsg:
 					// this coro is still not blocked so add back to runnable stack
 					runnable = append(runnable, next)
 					key := status.(Signal[Key]).key
-					queue, ok := n.queues[key]
-					if ok && queue.Len() > 0 {
+					queue := n.queues[key]
+					if len(queue) > 0 {
 						// unblock exactly one coro waiting on key
-						unblocked := queue.PopFront()
+						unblocked := queue[0]
+						n.queues[key] = queue[1:]
 						runnable = append(runnable, unblocked)
 					}
 				case DoneMsg:
@@ -162,8 +158,7 @@ func (n *BlockingRaftNode[Key]) getSnapshot() ([]byte, error) {
 	queues := make(map[Key]Queue[PartialOp])
 	for key, ops := range n.queues {
 		partialOps := Queue[PartialOp]{}
-		for i := 0; i < ops.Len(); i++ {
-			op := ops.At(i)
+		for _, op := range ops {
 			// save everything except actual coroutine which cannot be serialized
 			partialOps = append(partialOps, PartialOp{op.OpData, op.Accesses, op.NumResumes})
 		}
@@ -207,9 +202,9 @@ func (n *BlockingRaftNode[Key]) recoverFromSnapshot(data []byte) error {
 
 	// replay partial ops and reconstruct wait queues
 	n.replaying = true
-	n.queues = map[Key]*deque.Deque[CoroWithAccesses]{}
+	n.queues = map[Key]Queue[CoroWithAccesses]{}
 	for key, partialOps := range snapshot.Queues {
-		ops := deque.Deque[CoroWithAccesses]{}
+		ops := Queue[CoroWithAccesses]{}
 		for _, partialOp := range partialOps {
 			// create new version of coroutine
 			resume := CreateCoro[Key, []byte](n.applyFunc, partialOp.OpData)
@@ -220,9 +215,9 @@ func (n *BlockingRaftNode[Key]) recoverFromSnapshot(data []byte) error {
 			for i := 0; i < partialOp.NumResumes; i++ {
 				coro.Resume()
 			}
-			ops.PushBack(coro)
+			ops = append(ops, coro)
 		}
-		n.queues[key] = &ops
+		n.queues[key] = ops
 	}
 	n.replaying = false
 
