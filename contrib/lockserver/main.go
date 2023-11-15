@@ -16,7 +16,11 @@ package main
 
 import (
 	"flag"
+	"log"
+	"os"
+	"runtime/pprof"
 	"strings"
+	"time"
 
 	"go.etcd.io/raft/v3/raftpb"
 )
@@ -29,7 +33,21 @@ func main() {
 	impl := flag.String("impl", "blockingraft", "lock server implementation to use (condvar, unreplsimple, unreplcoros, unreplqueues, simple, queues, coros, kvlocks, blockingraft, kv)")
 	clearLog := flag.Bool("clearlog", false, "whether to use a fresh log, removing all previous persistent state")
 	timeout := flag.Int("timeout", 100, "number of milliseconds simple lock server waits between acquire attempts")
+	profile := flag.String("profile", "", "write cpu profile to file")
 	flag.Parse()
+
+	if *profile != "" {
+		f, err := os.Create(*profile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		go func() {
+			// profile for 10 seconds
+			<-time.After(10 * time.Second)
+			pprof.StopCPUProfile()
+		}()
+	}
 
 	proposeC := make(chan []byte)
 	defer close(proposeC)
