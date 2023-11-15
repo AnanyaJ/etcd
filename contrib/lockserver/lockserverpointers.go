@@ -10,10 +10,10 @@ type LockServerPointers struct {
 
 	proposeC  chan []byte
 	opManager *OpManager
-	appliedC  <-chan AppliedOp[bool]
+	appliedC  <-chan AppliedOp[LockOp, bool]
 }
 
-func newPointersLockServer(proposeC chan []byte, appliedC <-chan AppliedOp[bool]) *LockServerPointers {
+func newPointersLockServer(proposeC chan []byte, appliedC <-chan AppliedOp[LockOp, bool]) *LockServerPointers {
 	locks := make(map[string]bool)
 	state, err := json.Marshal(locks)
 	if err != nil {
@@ -52,8 +52,7 @@ func (s *LockServerPointers) IsLocked(lockName string, clientID ClientID, opNum 
 func (s *LockServerPointers) processApplied() {
 	// ops that been executed to completion
 	for appliedOp := range s.appliedC {
-		op := lockOpFromBytes(appliedOp.op)
-		s.opManager.reportOpFinished(op.OpNum, appliedOp.result)
+		s.opManager.reportOpFinished(appliedOp.op.OpNum, appliedOp.result)
 	}
 }
 
@@ -79,7 +78,7 @@ func (s *LockServerPointers) apply(
 	access func(func() []any) []any,
 	wait func(string),
 	signal func(string),
-) bool {
+) AppliedOp[LockOp, bool] {
 	op := lockOpFromBytes(data)
 
 	locks := s.getLocks(access)
@@ -109,7 +108,7 @@ func (s *LockServerPointers) apply(
 		returnVal = isLocked
 	}
 
-	return returnVal
+	return AppliedOp[LockOp, bool]{op, returnVal}
 }
 
 func (s *LockServerPointers) getSnapshot() ([]byte, error) {

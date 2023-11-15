@@ -3,10 +3,10 @@ package main
 type LockServerKV struct {
 	proposeC  chan []byte
 	opManager *OpManager
-	appliedC  <-chan AppliedOp[bool]
+	appliedC  <-chan AppliedOp[LockOp, bool]
 }
 
-func newKVLockServer(proposeC chan []byte, appliedC <-chan AppliedOp[bool]) *LockServerKV {
+func newKVLockServer(proposeC chan []byte, appliedC <-chan AppliedOp[LockOp, bool]) *LockServerKV {
 	s := &LockServerKV{
 		proposeC:  proposeC,
 		appliedC:  appliedC,
@@ -37,8 +37,7 @@ func (s *LockServerKV) IsLocked(lockName string, clientID ClientID, opNum int64)
 
 func (s *LockServerKV) processApplied() {
 	for appliedOp := range s.appliedC {
-		op := lockOpFromBytes(appliedOp.op)
-		s.opManager.reportOpFinished(op.OpNum, appliedOp.result)
+		s.opManager.reportOpFinished(appliedOp.op.OpNum, appliedOp.result)
 	}
 }
 
@@ -48,7 +47,7 @@ func (s *LockServerKV) apply(
 	put func(string, bool),
 	wait func(string),
 	signal func(string),
-) bool {
+) AppliedOp[LockOp, bool] {
 	op := lockOpFromBytes(data)
 	var returnVal bool
 	switch op.OpType {
@@ -70,5 +69,5 @@ func (s *LockServerKV) apply(
 		returnVal = get(op.LockName)
 	}
 
-	return returnVal
+	return AppliedOp[LockOp, bool]{op, returnVal}
 }

@@ -30,7 +30,7 @@ type BlockingRaftNode[Key constraints.Ordered, ReturnType any] struct {
 	snapshotterReady <-chan *snap.Snapshotter
 	commitC          <-chan *commit
 	errorC           <-chan error
-	appliedC         chan AppliedOp[ReturnType]
+	appliedC         chan ReturnType
 
 	applyFunc        func(wait func(Key), signal func(Key), args ...interface{}) ReturnType
 	snapshotFunc     func() ([]byte, error)
@@ -50,11 +50,11 @@ func newBlockingRaftNode[Key constraints.Ordered, ReturnType any](
 	proposeC <-chan []byte,
 	confChangeC <-chan raftpb.ConfChange,
 	clearLog bool,
-) (*BlockingRaftNode[Key, ReturnType], <-chan error, <-chan AppliedOp[ReturnType]) {
+) (*BlockingRaftNode[Key, ReturnType], <-chan error, <-chan ReturnType) {
 	var n *BlockingRaftNode[Key, ReturnType]
 	getSnapshot := func() ([]byte, error) { return n.getSnapshot() }
 	commitC, errorC, snapshotterReady := newRaftNode(id, peers, join, getSnapshot, proposeC, confChangeC, clearLog)
-	appliedC := make(chan AppliedOp[ReturnType])
+	appliedC := make(chan ReturnType)
 	n = &BlockingRaftNode[Key, ReturnType]{
 		snapshotterReady: snapshotterReady,
 		commitC:          commitC,
@@ -141,7 +141,7 @@ func (n *BlockingRaftNode[Key, ReturnType]) applyCommits() {
 					}
 				case DoneMsg:
 					// inform client that op has completed
-					n.appliedC <- AppliedOp[ReturnType]{op: next.OpData, result: result}
+					n.appliedC <- result
 				}
 			}
 		}

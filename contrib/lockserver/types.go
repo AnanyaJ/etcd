@@ -9,9 +9,9 @@ type LockQueue[T any] struct {
 	Queue    Queue[T]
 }
 
-type AppliedOp[ReturnType any] struct {
-	op     []byte
-	result ReturnType
+type AppliedOp[OpType, ResultType any] struct {
+	op     OpType
+	result ResultType
 }
 
 type BlockingApp[Key constraints.Ordered, ReturnType any] interface {

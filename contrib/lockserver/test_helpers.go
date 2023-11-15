@@ -44,7 +44,7 @@ func translated_lockserver_setup() (srv *httptest.Server, cli *http.Client, prop
 	proposeC = make(chan []byte)
 	confChangeC = make(chan raftpb.ConfChange)
 
-	raftNode, _, appliedC := newBlockingRaftNode[string, OngoingOp](1, clusters, false, proposeC, confChangeC, true)
+	raftNode, _, appliedC := newBlockingRaftNode[string, AppliedOp[LockOp, OngoingOp]](1, clusters, false, proposeC, confChangeC, true)
 	ls := newReplLockServer(proposeC, appliedC)
 	raftNode.start(ls)
 

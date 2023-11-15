@@ -6,54 +6,54 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
-type Coro struct {
+type Coro[ReturnType any] struct {
 	OpData []byte
-	Resume func() (Status, bool)
+	Resume func() (Status, ReturnType)
 }
 
-type BlockingKVStore[Key constraints.Ordered, Value any] struct {
+type BlockingKVStore[Key constraints.Ordered, Value any, ReturnType any] struct {
 	commitC  <-chan *commit
 	errorC   <-chan error
-	appliedC chan AppliedOp[bool]
+	appliedC chan ReturnType
 
-	applyFunc func(wait func(Key), signal func(Key), args ...interface{}) bool
+	applyFunc func(wait func(Key), signal func(Key), args ...interface{}) ReturnType
 
 	kvstore map[Key]Value
-	queues  map[Key]Queue[Coro]
+	queues  map[Key]Queue[Coro[ReturnType]]
 }
 
-func newBlockingKVStore[Key constraints.Ordered, Value any](
+func newBlockingKVStore[Key constraints.Ordered, Value any, ReturnType any](
 	commitC <-chan *commit,
 	errorC <-chan error,
-	apply func(op []byte, get func(Key) Value, put func(Key, Value), wait func(Key), signal func(Key)) bool,
-) <-chan AppliedOp[bool] {
-	var kv *BlockingKVStore[Key, Value]
-	appliedC := make(chan AppliedOp[bool])
-	applyFunc := func(wait func(Key), signal func(Key), args ...interface{}) bool {
+	apply func(op []byte, get func(Key) Value, put func(Key, Value), wait func(Key), signal func(Key)) ReturnType,
+) <-chan ReturnType {
+	var kv *BlockingKVStore[Key, Value, ReturnType]
+	appliedC := make(chan ReturnType)
+	applyFunc := func(wait func(Key), signal func(Key), args ...interface{}) ReturnType {
 		op := args[0].([]byte)
 		return apply(op, kv.get, kv.put, wait, signal)
 	}
-	kv = &BlockingKVStore[Key, Value]{
+	kv = &BlockingKVStore[Key, Value, ReturnType]{
 		commitC:   commitC,
 		errorC:    errorC,
 		appliedC:  appliedC,
 		applyFunc: applyFunc,
 		kvstore:   make(map[Key]Value),
-		queues:    make(map[Key]Queue[Coro]),
+		queues:    make(map[Key]Queue[Coro[ReturnType]]),
 	}
 	go kv.applyCommits()
 	return appliedC
 }
 
-func (kv *BlockingKVStore[Key, Value]) get(key Key) Value {
+func (kv *BlockingKVStore[Key, Value, ReturnType]) get(key Key) Value {
 	return kv.kvstore[key]
 }
 
-func (kv *BlockingKVStore[Key, Value]) put(key Key, val Value) {
+func (kv *BlockingKVStore[Key, Value, ReturnType]) put(key Key, val Value) {
 	kv.kvstore[key] = val
 }
 
-func (kv *BlockingKVStore[Key, Value]) applyCommits() {
+func (kv *BlockingKVStore[Key, Value, ReturnType]) applyCommits() {
 	for commit := range kv.commitC {
 		if commit == nil {
 			// signaled to load snapshot
@@ -63,8 +63,8 @@ func (kv *BlockingKVStore[Key, Value]) applyCommits() {
 
 		for _, data := range commit.data {
 			// new coro is initially the only runnable one
-			coro := CreateCoro[Key, bool](kv.applyFunc, data)
-			runnable := []Coro{Coro{OpData: data, Resume: coro}}
+			coro := CreateCoro[Key, ReturnType](kv.applyFunc, data)
+			runnable := []Coro[ReturnType]{Coro[ReturnType]{OpData: data, Resume: coro}}
 			// resume coros until no coro can make more progress -- ensures
 			// deterministic behavior since timing of ops arriving on
 			// started channel cannot be controlled
@@ -91,7 +91,7 @@ func (kv *BlockingKVStore[Key, Value]) applyCommits() {
 					}
 				case DoneMsg:
 					// inform client that op has completed
-					kv.appliedC <- AppliedOp[bool]{op: next.OpData, result: result}
+					kv.appliedC <- result
 				}
 			}
 		}
@@ -103,7 +103,7 @@ func (kv *BlockingKVStore[Key, Value]) applyCommits() {
 	}
 }
 
-func (kv *BlockingKVStore[Key, Value]) getSnapshot() ([]byte, error) {
+func (kv *BlockingKVStore[Key, Value, ReturnType]) getSnapshot() ([]byte, error) {
 	// TODO: implement
 	return nil, nil
 }
