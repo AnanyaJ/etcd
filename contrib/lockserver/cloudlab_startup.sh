@@ -7,3 +7,7 @@ export PATH=\$PATH:/usr/local/go/bin
 hash -r
 
 go version
+
+# build code
+go get go.etcd.io/etcd/v3/contrib/lockserver
+go build -o lockserver
