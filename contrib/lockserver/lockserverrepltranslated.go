@@ -34,10 +34,10 @@ type LockServerRepl struct {
 	ongoing   map[ClientID]OngoingOp
 	proposeC  chan []byte
 	opManager *OpManager
-	appliedC  <-chan AppliedOp
+	appliedC  <-chan AppliedOp[OngoingOp]
 }
 
-func newReplLockServer(proposeC chan []byte, appliedC <-chan AppliedOp) *LockServerRepl {
+func newReplLockServer(proposeC chan []byte, appliedC <-chan AppliedOp[OngoingOp]) *LockServerRepl {
 	gob.Register(OngoingOp{})
 	s := &LockServerRepl{locks: make(map[string]bool), ongoing: make(map[ClientID]OngoingOp), proposeC: proposeC, opManager: newOpManager(), appliedC: appliedC}
 	go s.processApplied()
@@ -62,33 +62,32 @@ func (s *LockServerRepl) IsLocked(lockName string, clientID ClientID, opNum int6
 func (s *LockServerRepl) processApplied() {
 	for appliedOp := range s.appliedC {
 		op := lockOpFromBytes(appliedOp.op)
-		var ongoingOp OngoingOp
-		decodeNoErr(appliedOp.result, &ongoingOp)
+		ongoingOp := appliedOp.result
 		if ongoingOp.Done {
 			s.ongoing[op.ClientID] = ongoingOp
 			s.opManager.reportOpFinished(op.OpNum, ongoingOp.Result)
 		}
 	}
 }
-func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) []byte {
+func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) OngoingOp {
 	op := lockOpFromBytes(data)
-	retVals4115410823380355554 := access(func() []any {
+	retVals5848367624187893758 := access(func() []any {
 		ongoing, ok := s.ongoing[op.ClientID]
 		return []any{ongoing, ok}
 	})
-	ongoing, ok := retVals4115410823380355554[0].(OngoingOp), retVals4115410823380355554[1].(bool)
+	ongoing, ok := retVals5848367624187893758[0].(OngoingOp), retVals5848367624187893758[1].(bool)
 	if ok && ongoing.OpNum == op.OpNum {
-		return encodeNoErr(ongoing)
+		return ongoing
 	}
 	access(func() []any {
 		s.ongoing[op.ClientID] = OngoingOp{OpNum: op.OpNum, Done: false}
 		return []any{}
 	})
-	retVals4599741972382674047 := access(func() []any {
+	retVals5835686572736851302 := access(func() []any {
 		isLocked, ok := s.locks[op.LockName]
 		return []any{isLocked, ok}
 	})
-	isLocked, ok := retVals4599741972382674047[0].(bool), retVals4599741972382674047[1].(bool)
+	isLocked, ok := retVals5835686572736851302[0].(bool), retVals5835686572736851302[1].(bool)
 	if !ok {
 		access(func() []any {
 			s.locks[op.LockName] = false
@@ -100,11 +99,11 @@ func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wai
 	case AcquireOp:
 		for isLocked {
 			wait(op.LockName)
-			retVals4458129848464405839 := access(func() []any {
+			retVals7920144669386768105 := access(func() []any {
 				isLocked := s.locks[op.LockName]
 				return []any{isLocked}
 			})
-			isLocked = retVals4458129848464405839[0].(bool)
+			isLocked = retVals7920144669386768105[0].(bool)
 		}
 		access(func() []any {
 			s.locks[op.LockName] = true
@@ -123,7 +122,7 @@ func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wai
 	case IsLockedOp:
 		returnVal = isLocked
 	}
-	return encodeNoErr(OngoingOp{OpNum: op.OpNum, Done: true, Result: returnVal})
+	return OngoingOp{OpNum: op.OpNum, Done: true, Result: returnVal}
 }
 func (s *LockServerRepl) getSnapshot() ([]byte, error) {
 	return json.Marshal(LockServerSnapshot{Locks: s.locks, Ongoing: s.ongoing})

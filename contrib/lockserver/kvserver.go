@@ -12,10 +12,10 @@ type KVServer struct {
 
 	proposeC  chan []byte
 	opManager *OpManager
-	appliedC  <-chan AppliedOp
+	appliedC  <-chan AppliedOp[struct{}]
 }
 
-func newKVServer(proposeC chan []byte, appliedC <-chan AppliedOp) *KVServer {
+func newKVServer(proposeC chan []byte, appliedC <-chan AppliedOp[struct{}]) *KVServer {
 	kv := &KVServer{
 		kv:        make(map[string]int),
 		proposeC:  proposeC,
@@ -47,9 +47,7 @@ func (kv *KVServer) processApplied() {
 	for appliedOp := range kv.appliedC {
 		var op KVServerOp
 		decodeNoErr(appliedOp.op, &op)
-		var result bool
-		decodeNoErr(appliedOp.result, &result)
-		kv.opManager.reportOpFinished(op.OpNum, result)
+		kv.opManager.reportOpFinished(op.OpNum, true)
 	}
 }
 
@@ -58,7 +56,7 @@ func (kv *KVServer) apply(
 	access func(func() []any) []any,
 	wait func(string),
 	signal func(string),
-) []byte {
+) struct{} {
 	var op KVServerOp
 	decodeNoErr(data, &op)
 
@@ -74,7 +72,7 @@ func (kv *KVServer) apply(
 		}
 	}
 
-	return encodeNoErr(true)
+	return struct{}{}
 }
 
 func (kv *KVServer) getSnapshot() ([]byte, error) {

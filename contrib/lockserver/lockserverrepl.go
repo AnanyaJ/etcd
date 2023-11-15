@@ -24,10 +24,10 @@ package main
 
 // 	proposeC  chan []byte
 // 	opManager *OpManager
-// 	appliedC  <-chan AppliedOp
+// 	appliedC  <-chan AppliedOp[OngoingOp]
 // }
 
-// func newReplLockServer(proposeC chan []byte, appliedC <-chan AppliedOp) *LockServerRepl {
+// func newReplLockServer(proposeC chan []byte, appliedC <-chan AppliedOp[OngoingOp]) *LockServerRepl {
 // 	gob.Register(OngoingOp{})
 // 	s := &LockServerRepl{
 // 		locks:     make(map[string]bool),
@@ -64,8 +64,7 @@ package main
 // 	// ops that been executed to completion
 // 	for appliedOp := range s.appliedC {
 // 		op := lockOpFromBytes(appliedOp.op)
-// 		var ongoingOp OngoingOp
-// 		decodeNoErr(appliedOp.result, &ongoingOp)
+// 		ongoingOp := appliedOp.result
 // 		if ongoingOp.Done {
 // 			s.ongoing[op.ClientID] = ongoingOp                       // store result in case of duplicate requests
 // 			s.opManager.reportOpFinished(op.OpNum, ongoingOp.Result) // inform client of completion
@@ -78,12 +77,12 @@ package main
 // 	access func(func() []any) []any, // TODO: add this parameter during translation
 // 	wait func(string),
 // 	signal func(string),
-// ) []byte {
+// ) OngoingOp {
 // 	op := lockOpFromBytes(data)
 
 // 	ongoing, ok := s.ongoing[op.ClientID] // @get OngoingOp bool
 // 	if ok && ongoing.OpNum == op.OpNum {
-// 		return encodeNoErr(ongoing) // already started or finished applying
+// 		return ongoing // already started or finished applying
 // 	}
 // 	s.ongoing[op.ClientID] = OngoingOp{OpNum: op.OpNum, Done: false} // @put
 
@@ -111,7 +110,7 @@ package main
 // 		returnVal = isLocked
 // 	}
 
-// 	return encodeNoErr(OngoingOp{OpNum: op.OpNum, Done: true, Result: returnVal})
+// 	return OngoingOp{OpNum: op.OpNum, Done: true, Result: returnVal}
 // }
 
 // func (s *LockServerRepl) getSnapshot() ([]byte, error) {
