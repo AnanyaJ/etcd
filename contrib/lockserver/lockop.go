@@ -1,5 +1,10 @@
 package main
 
+import (
+	"encoding/json"
+	"log"
+)
+
 type LockOp struct {
 	ClientID ClientID
 	OpNum    int64
@@ -8,11 +13,17 @@ type LockOp struct {
 }
 
 func (op LockOp) marshal() []byte {
-	return encodeNoErr(op)
+	data, err := json.Marshal(op)
+	if err != nil {
+		log.Fatalf("Failed to marshal lock op: %v", err)
+	}
+	return data
 }
 
 func lockOpFromBytes(data []byte) LockOp {
 	var op LockOp
-	decodeNoErr(data, &op)
+	if err := json.Unmarshal(data, &op); err != nil {
+		log.Fatalf("Failed to unmarshal lock op: %v", err)
+	}
 	return op
 }
