@@ -6,6 +6,7 @@ package main
 // )
 
 // type ClientID int64
+// type AppliedLSReplOp AppliedOp[LockOp, OngoingOp]
 
 // type OngoingOp struct {
 // 	OpNum  int64
@@ -24,10 +25,10 @@ package main
 
 // 	proposeC  chan []byte
 // 	opManager *OpManager
-// 	appliedC  <-chan AppliedOp[LockOp, OngoingOp]
+// 	appliedC  <-chan AppliedLSReplOp
 // }
 
-// func newReplLockServer(proposeC chan []byte, appliedC <-chan AppliedOp[LockOp, OngoingOp]) *LockServerRepl {
+// func newReplLockServer(proposeC chan []byte, appliedC <-chan AppliedLSReplOp) *LockServerRepl {
 // 	gob.Register(OngoingOp{})
 // 	s := &LockServerRepl{
 // 		locks:     make(map[string]bool),
@@ -77,12 +78,12 @@ package main
 // 	access func(func() []any) []any, // TODO: add this parameter during translation
 // 	wait func(string),
 // 	signal func(string),
-// ) AppliedOp[LockOp, OngoingOp] {
+// ) AppliedLSReplOp {
 // 	op := lockOpFromBytes(data)
 
 // 	ongoing, ok := s.ongoing[op.ClientID] // @get OngoingOp bool
 // 	if ok && ongoing.OpNum == op.OpNum {
-// 		return AppliedOp[LockOp, OngoingOp]{op, ongoing} // already started or finished applying
+// 		return AppliedLSReplOp{op, ongoing} // already started or finished applying
 // 	}
 // 	s.ongoing[op.ClientID] = OngoingOp{OpNum: op.OpNum, Done: false} // @put
 
@@ -110,7 +111,7 @@ package main
 // 		returnVal = isLocked
 // 	}
 
-// 	return AppliedOp[LockOp, OngoingOp]{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: returnVal}}
+// 	return AppliedLSReplOp{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: returnVal}}
 // }
 
 // func (s *LockServerRepl) getSnapshot() ([]byte, error) {

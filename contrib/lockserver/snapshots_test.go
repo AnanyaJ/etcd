@@ -19,15 +19,17 @@ const (
 	SnapshotTestOpG
 )
 
+type AppliedSnapshotsTestOp AppliedOp[int, bool]
+
 type SnapshotsTestState struct {
 	locks map[string]bool
 }
 
-func (s *SnapshotsTestState) setup_test() (blockingRaftNode *BlockingRaftNode[string, AppliedOp[int, bool]], proposeC chan []byte, confChangeC chan raftpb.ConfChange, appliedC <-chan AppliedOp[int, bool]) {
+func (s *SnapshotsTestState) setup_test() (blockingRaftNode *BlockingRaftNode[string, AppliedSnapshotsTestOp], proposeC chan []byte, confChangeC chan raftpb.ConfChange, appliedC <-chan AppliedSnapshotsTestOp) {
 	clusters := []string{"http://127.0.0.1:9021"}
 	proposeC = make(chan []byte)
 	confChangeC = make(chan raftpb.ConfChange)
-	blockingRaftNode, _, appliedC = newBlockingRaftNode[string, AppliedOp[int, bool]](1, clusters, false, proposeC, confChangeC, true)
+	blockingRaftNode, _, appliedC = newBlockingRaftNode[string, AppliedSnapshotsTestOp](1, clusters, false, proposeC, confChangeC, true)
 	blockingRaftNode.start(s)
 	return blockingRaftNode, proposeC, confChangeC, appliedC
 }
@@ -41,10 +43,10 @@ func stop_raft(proposeC chan []byte, confChangeC chan raftpb.ConfChange) {
 
 func (s *SnapshotsTestState) restart_from_snapshot(
 	t *testing.T,
-	node *BlockingRaftNode[string, AppliedOp[int, bool]],
+	node *BlockingRaftNode[string, AppliedSnapshotsTestOp],
 	proposeC chan []byte,
 	confChangeC chan raftpb.ConfChange,
-) (nodeNew *BlockingRaftNode[string, AppliedOp[int, bool]], proposeCNew chan []byte, confChangeCNew chan raftpb.ConfChange, appliedC <-chan AppliedOp[int, bool]) {
+) (nodeNew *BlockingRaftNode[string, AppliedSnapshotsTestOp], proposeCNew chan []byte, confChangeCNew chan raftpb.ConfChange, appliedC <-chan AppliedSnapshotsTestOp) {
 	snapshot, err := node.getSnapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +65,7 @@ func (s *SnapshotsTestState) apply(
 	access func(func() []any) []any,
 	wait func(string),
 	signal func(string),
-) AppliedOp[int, bool] {
+) AppliedSnapshotsTestOp {
 	var opType int
 	err := decode(data, &opType)
 	if err != nil {
@@ -105,16 +107,16 @@ func (s *SnapshotsTestState) apply(
 		}
 		acquire("lock1")
 	case SnapshotTestOpD:
-		return AppliedOp[int, bool]{opType, isLocked("lock1")}
+		return AppliedSnapshotsTestOp{opType, isLocked("lock1")}
 	case SnapshotTestOpE:
 		release("lock2")
 	case SnapshotTestOpF:
-		return AppliedOp[int, bool]{opType, isLocked("lock2")}
+		return AppliedSnapshotsTestOp{opType, isLocked("lock2")}
 	case SnapshotTestOpG:
 		release("lock1")
 	}
 
-	return AppliedOp[int, bool]{opType, true}
+	return AppliedSnapshotsTestOp{opType, true}
 }
 
 func (s *SnapshotsTestState) getSnapshot() ([]byte, error) {
@@ -133,7 +135,7 @@ func marshal_optype(t *testing.T, opType int) []byte {
 	return op
 }
 
-func check_result_and_get_op_type(t *testing.T, op AppliedOp[int, bool]) int {
+func check_result_and_get_op_type(t *testing.T, op AppliedSnapshotsTestOp) int {
 	if op.result != true {
 		t.Fatal("Expected result true but got false")
 	}

@@ -7,15 +7,17 @@ const (
 	WaitOp
 )
 
+type AppliedKVOp AppliedOp[KVServerOp, struct{}]
+
 type KVServer struct {
 	kv map[string]int
 
 	proposeC  chan []byte
 	opManager *OpManager
-	appliedC  <-chan AppliedOp[KVServerOp, struct{}]
+	appliedC  <-chan AppliedKVOp
 }
 
-func newKVServer(proposeC chan []byte, appliedC <-chan AppliedOp[KVServerOp, struct{}]) *KVServer {
+func newKVServer(proposeC chan []byte, appliedC <-chan AppliedKVOp) *KVServer {
 	kv := &KVServer{
 		kv:        make(map[string]int),
 		proposeC:  proposeC,
@@ -54,7 +56,7 @@ func (kv *KVServer) apply(
 	access func(func() []any) []any,
 	wait func(string),
 	signal func(string),
-) AppliedOp[KVServerOp, struct{}] {
+) AppliedKVOp {
 	var op KVServerOp
 	decodeNoErr(data, &op)
 
@@ -70,7 +72,7 @@ func (kv *KVServer) apply(
 		}
 	}
 
-	return AppliedOp[KVServerOp, struct{}]{op, struct{}{}}
+	return AppliedKVOp{op, struct{}{}}
 }
 
 func (kv *KVServer) getSnapshot() ([]byte, error) {

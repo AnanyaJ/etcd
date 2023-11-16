@@ -6,6 +6,7 @@ import (
 )
 
 type ClientID int64
+type AppliedLSReplOp AppliedOp[LockOp, OngoingOp]
 type OngoingOp struct {
 	OpNum  int64
 	Done   bool
@@ -34,10 +35,10 @@ type LockServerRepl struct {
 	ongoing   map[ClientID]OngoingOp
 	proposeC  chan []byte
 	opManager *OpManager
-	appliedC  <-chan AppliedOp[LockOp, OngoingOp]
+	appliedC  <-chan AppliedLSReplOp
 }
 
-func newReplLockServer(proposeC chan []byte, appliedC <-chan AppliedOp[LockOp, OngoingOp]) *LockServerRepl {
+func newReplLockServer(proposeC chan []byte, appliedC <-chan AppliedLSReplOp) *LockServerRepl {
 	gob.Register(OngoingOp{})
 	s := &LockServerRepl{locks: make(map[string]bool), ongoing: make(map[ClientID]OngoingOp), proposeC: proposeC, opManager: newOpManager(), appliedC: appliedC}
 	go s.processApplied()
@@ -69,7 +70,7 @@ func (s *LockServerRepl) processApplied() {
 		}
 	}
 }
-func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) AppliedOp[LockOp, OngoingOp] {
+func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) AppliedLSReplOp {
 	op := lockOpFromBytes(data)
 	retVals3894464442764287959 := access(func() []any {
 		ongoing, ok := s.ongoing[op.ClientID]
@@ -77,7 +78,7 @@ func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wai
 	})
 	ongoing, ok := retVals3894464442764287959[0].(OngoingOp), retVals3894464442764287959[1].(bool)
 	if ok && ongoing.OpNum == op.OpNum {
-		return AppliedOp[LockOp, OngoingOp]{op, ongoing}
+		return AppliedLSReplOp{op, ongoing}
 	}
 	access(func() []any {
 		s.ongoing[op.ClientID] = OngoingOp{OpNum: op.OpNum, Done: false}
@@ -122,7 +123,7 @@ func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wai
 	case IsLockedOp:
 		returnVal = isLocked
 	}
-	return AppliedOp[LockOp, OngoingOp]{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: returnVal}}
+	return AppliedLSReplOp{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: returnVal}}
 }
 func (s *LockServerRepl) getSnapshot() ([]byte, error) {
 	return json.Marshal(LockServerSnapshot{Locks: s.locks, Ongoing: s.ongoing})

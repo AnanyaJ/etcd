@@ -91,13 +91,13 @@ func main() {
 		kvLockServer = newKVLockServer(proposeC, appliedC)
 		serveHTTPLSAPI(kvLockServer, *lsport, confChangeC, errorC)
 	case "blockingraft":
-		blockingRaftNode, errorC, appliedC := newBlockingRaftNode[string, AppliedOp[LockOp, OngoingOp]](*id, strings.Split(*cluster, ","), *join, proposeC, confChangeC, *clearLog)
+		blockingRaftNode, errorC, appliedC := newBlockingRaftNode[string, AppliedLSReplOp](*id, strings.Split(*cluster, ","), *join, proposeC, confChangeC, *clearLog)
 		lockServerRepl := newReplLockServer(proposeC, appliedC)
 		blockingRaftNode.start(lockServerRepl)
 		// the http handler will propose updates to raft
 		serveHTTPLSAPI(lockServerRepl, *lsport, confChangeC, errorC)
 	case "kv":
-		blockingRaftNode, errorC, appliedC := newBlockingRaftNode[string, AppliedOp[KVServerOp, struct{}]](*id, strings.Split(*cluster, ","), *join, proposeC, confChangeC, *clearLog)
+		blockingRaftNode, errorC, appliedC := newBlockingRaftNode[string, AppliedKVOp](*id, strings.Split(*cluster, ","), *join, proposeC, confChangeC, *clearLog)
 		kvServer := newKVServer(proposeC, appliedC)
 		blockingRaftNode.start(kvServer)
 		serveHTTPKVAPI(kvServer, *lsport, confChangeC, errorC)

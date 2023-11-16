@@ -10,10 +10,10 @@ type LockServerPointers struct {
 
 	proposeC  chan []byte
 	opManager *OpManager
-	appliedC  <-chan AppliedOp[LockOp, bool]
+	appliedC  <-chan AppliedLockOp
 }
 
-func newPointersLockServer(proposeC chan []byte, appliedC <-chan AppliedOp[LockOp, bool]) *LockServerPointers {
+func newPointersLockServer(proposeC chan []byte, appliedC <-chan AppliedLockOp) *LockServerPointers {
 	locks := make(map[string]bool)
 	state, err := json.Marshal(locks)
 	if err != nil {
@@ -78,7 +78,7 @@ func (s *LockServerPointers) apply(
 	access func(func() []any) []any,
 	wait func(string),
 	signal func(string),
-) AppliedOp[LockOp, bool] {
+) AppliedLockOp {
 	op := lockOpFromBytes(data)
 
 	locks := s.getLocks(access)
@@ -108,7 +108,7 @@ func (s *LockServerPointers) apply(
 		returnVal = isLocked
 	}
 
-	return AppliedOp[LockOp, bool]{op, returnVal}
+	return AppliedLockOp{op, returnVal}
 }
 
 func (s *LockServerPointers) getSnapshot() ([]byte, error) {
