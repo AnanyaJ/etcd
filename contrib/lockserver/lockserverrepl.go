@@ -3,6 +3,7 @@ package main
 // import (
 // 	"encoding/gob"
 // 	"encoding/json"
+// 	"sync"
 // )
 
 // type ClientID int64
@@ -20,8 +21,9 @@ package main
 // }
 
 // type LockServerRepl struct {
-// 	locks   map[string]bool
-// 	ongoing map[ClientID]OngoingOp
+// 	locks       map[string]bool
+// 	ongoing     map[ClientID]OngoingOp
+// 	ongoingLock *sync.Mutex
 
 // 	proposeC  chan []byte
 // 	opManager *OpManager
@@ -31,11 +33,12 @@ package main
 // func newReplLockServer(proposeC chan []byte, appliedC <-chan AppliedLSReplOp) *LockServerRepl {
 // 	gob.Register(OngoingOp{})
 // 	s := &LockServerRepl{
-// 		locks:     make(map[string]bool),
-// 		ongoing:   make(map[ClientID]OngoingOp),
-// 		proposeC:  proposeC,
-// 		opManager: newOpManager(),
-// 		appliedC:  appliedC,
+// 		locks:       make(map[string]bool),
+// 		ongoing:     make(map[ClientID]OngoingOp),
+// 		ongoingLock: &sync.Mutex{},
+// 		proposeC:    proposeC,
+// 		opManager:   newOpManager(),
+// 		appliedC:    appliedC,
 // 	}
 // 	go s.processApplied()
 // 	return s
@@ -67,7 +70,9 @@ package main
 // 		op := appliedOp.op
 // 		ongoingOp := appliedOp.result
 // 		if ongoingOp.Done {
-// 			s.ongoing[op.ClientID] = ongoingOp                       // store result in case of duplicate requests
+// 			s.ongoingLock.Lock()
+// 			s.ongoing[op.ClientID] = ongoingOp // store result in case of duplicate requests
+// 			s.ongoingLock.Unlock()
 // 			s.opManager.reportOpFinished(op.OpNum, ongoingOp.Result) // inform client of completion
 // 		}
 // 	}
@@ -81,7 +86,9 @@ package main
 // ) AppliedLSReplOp {
 // 	op := lockOpFromBytes(data)
 
+// 	s.ongoingLock.Lock()                  // @put
 // 	ongoing, ok := s.ongoing[op.ClientID] // @get OngoingOp bool
+// 	s.ongoingLock.Unlock()                // @put
 // 	if ok && ongoing.OpNum == op.OpNum {
 // 		return AppliedLSReplOp{op, ongoing} // already started or finished applying
 // 	}
