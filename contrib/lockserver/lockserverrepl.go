@@ -88,11 +88,12 @@ package main
 
 // 	s.ongoingLock.Lock()                  // @put
 // 	ongoing, ok := s.ongoing[op.ClientID] // @get OngoingOp bool
-// 	s.ongoingLock.Unlock()                // @put
 // 	if ok && ongoing.OpNum == op.OpNum {
+// 		s.ongoingLock.Unlock()              // @put
 // 		return AppliedLSReplOp{op, ongoing} // already started or finished applying
 // 	}
 // 	s.ongoing[op.ClientID] = OngoingOp{OpNum: op.OpNum, Done: false} // @put
+// 	s.ongoingLock.Unlock()                                           // @put
 
 // 	isLocked, ok := s.locks[op.LockName] // @get bool bool (need to specify types of return values)
 // 	if !ok {
