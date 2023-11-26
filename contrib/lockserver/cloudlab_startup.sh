@@ -11,3 +11,5 @@ go version
 # build code
 go get go.etcd.io/etcd/v3/contrib/lockserver
 go build -o lockserver
+
+export CLUSTER="http://10.10.1.2:12379,http://10.10.1.3:12379,http://10.10.1.4:12379"

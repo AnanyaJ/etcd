@@ -10,3 +10,5 @@ go version
 
 # build code
 go build -o client_benchmark
+
+export SERVERS="http://10.10.1.2:12380,http://10.10.1.3:12380,http://10.10.1.4:12380"
