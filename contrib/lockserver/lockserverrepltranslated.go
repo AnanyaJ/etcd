@@ -7,7 +7,7 @@ import (
 )
 
 type ClientID int64
-type AppliedLSReplOp AppliedOp[LockOp, OngoingOp]
+type AppliedLSReplOp AppliedOp[*LockOp, OngoingOp]
 type OngoingOp struct {
 	OpNum  int64
 	Done   bool
@@ -83,11 +83,11 @@ func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wai
 		s.ongoingLock.Lock()
 		return []any{}
 	})
-	retVals6787216788982077646 := access(func() []any {
+	retVals3072861596546598613 := access(func() []any {
 		ongoing, ok := s.ongoing[op.ClientID]
 		return []any{ongoing, ok}
 	})
-	ongoing, ok := retVals6787216788982077646[0].(OngoingOp), retVals6787216788982077646[1].(bool)
+	ongoing, ok := retVals3072861596546598613[0].(OngoingOp), retVals3072861596546598613[1].(bool)
 	if ok && ongoing.OpNum == op.OpNum {
 		access(func() []any {
 			s.ongoingLock.Unlock()
@@ -103,11 +103,11 @@ func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wai
 		s.ongoingLock.Unlock()
 		return []any{}
 	})
-	retVals3815486816367651090 := access(func() []any {
+	retVals2241780387585959968 := access(func() []any {
 		isLocked, ok := s.locks[op.LockName]
 		return []any{isLocked, ok}
 	})
-	isLocked, ok := retVals3815486816367651090[0].(bool), retVals3815486816367651090[1].(bool)
+	isLocked, ok := retVals2241780387585959968[0].(bool), retVals2241780387585959968[1].(bool)
 	if !ok {
 		access(func() []any {
 			s.locks[op.LockName] = false
@@ -119,11 +119,11 @@ func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wai
 	case AcquireOp:
 		for isLocked {
 			wait(op.LockName)
-			retVals1430082122410740958 := access(func() []any {
+			retVals5270533695697543216 := access(func() []any {
 				isLocked := s.locks[op.LockName]
 				return []any{isLocked}
 			})
-			isLocked = retVals1430082122410740958[0].(bool)
+			isLocked = retVals5270533695697543216[0].(bool)
 		}
 		access(func() []any {
 			s.locks[op.LockName] = true

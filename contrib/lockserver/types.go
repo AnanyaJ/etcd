@@ -14,7 +14,7 @@ type AppliedOp[OpType, ResultType any] struct {
 	result ResultType
 }
 
-type AppliedLockOp AppliedOp[LockOp, bool]
+type AppliedLockOp AppliedOp[*LockOp, bool]
 
 type BlockingApp[Key constraints.Ordered, ReturnType any] interface {
 	apply(data []byte, access func(func() []any) []any, wait func(Key), signal func(Key)) ReturnType
