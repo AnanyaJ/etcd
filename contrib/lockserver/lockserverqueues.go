@@ -10,7 +10,7 @@ import (
 type QueueLockServer struct {
 	proposeC    chan<- []byte
 	opManager   *OpManager
-	locks       map[string]*LockQueue[*LockOp]
+	locks       map[string]*LockQueue[LockOp]
 	snapshotter *snap.Snapshotter
 }
 
@@ -23,7 +23,7 @@ func newQueueLockServer(snapshotter *snap.Snapshotter, proposeC chan<- []byte, c
 	s := &QueueLockServer{
 		proposeC:    proposeC,
 		opManager:   newOpManager(),
-		locks:       make(map[string]*LockQueue[*LockOp]),
+		locks:       make(map[string]*LockQueue[LockOp]),
 		snapshotter: snapshotter,
 	}
 	s.loadSnapshot()
@@ -103,7 +103,7 @@ func (s *QueueLockServer) addLock(lockName string) {
 	if s.locks[lockName] != nil {
 		return // already exists
 	}
-	s.locks[lockName] = &LockQueue[*LockOp]{Queue: []*LockOp{}}
+	s.locks[lockName] = &LockQueue[LockOp]{Queue: []LockOp{}}
 }
 
 func (s *QueueLockServer) getSnapshot() ([]byte, error) {
@@ -127,7 +127,7 @@ func (s *QueueLockServer) loadSnapshot() {
 }
 
 func (s *QueueLockServer) recoverFromSnapshot(snapshot []byte) error {
-	var locks map[string]*LockQueue[*LockOp]
+	var locks map[string]*LockQueue[LockOp]
 	if err := json.Unmarshal(snapshot, &locks); err != nil {
 		return err
 	}

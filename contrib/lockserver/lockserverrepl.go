@@ -7,7 +7,7 @@ package main
 // )
 
 // type ClientID int64
-// type AppliedLSReplOp AppliedOp[*LockOp, OngoingOp]
+// type AppliedLSReplOp AppliedOp[LockOp, OngoingOp]
 
 // type OngoingOp struct {
 // 	OpNum  int64

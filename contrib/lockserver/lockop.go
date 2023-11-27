@@ -20,8 +20,8 @@ func (op LockOp) marshal() []byte {
 	return data
 }
 
-func lockOpFromBytes(data []byte) *LockOp {
-	var op *LockOp = new(LockOp)
+func lockOpFromBytes(data []byte) LockOp {
+	var op LockOp
 	if err := json.Unmarshal(data, &op); err != nil {
 		log.Fatalf("Failed to unmarshal lock op: %v", err)
 	}
