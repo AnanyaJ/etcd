@@ -44,7 +44,7 @@ package main
 // 		kv.opManager.reportOpFinished(op.OpNum, result)
 // 	}
 // }
-// func (kv *KVServer) apply(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) []byte {
+// func (kv *KVServer) apply(data []byte, access func(func() []any) []any, wait func(string), signal func(string), broadcast func(string)) []byte {
 // 	op := kvStoreOpFromBytes(data)
 // 	switch op.OpType {
 // 	case IncrementOp:

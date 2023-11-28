@@ -16,6 +16,10 @@ type Signal[Key constraints.Ordered] struct {
 	key Key
 }
 
+type Broadcast[Key constraints.Ordered] struct {
+	key Key
+}
+
 type Done struct {
 }
 
@@ -27,12 +31,16 @@ func (signal Signal[Key]) msgType() int {
 	return SignalMsg
 }
 
+func (broadcast Broadcast[Key]) msgType() int {
+	return BroadcastMsg
+}
+
 func (done Done) msgType() int {
 	return DoneMsg
 }
 
 func CreateCoro[Key constraints.Ordered, Out any](
-	f func(wait func(Key), signal func(Key), args ...interface{}) Out,
+	f func(wait func(Key), signal func(Key), broadcast func(Key), args ...interface{}) Out,
 	args ...interface{},
 ) (resume func() (Status, Out)) {
 	cin := make(chan Continue)
@@ -58,9 +66,13 @@ func CreateCoro[Key constraints.Ordered, Out any](
 		cstatus <- Signal[Key]{key: key}
 		<-cin
 	}
+	broadcast := func(key Key) {
+		cstatus <- Broadcast[Key]{key: key}
+		<-cin
+	}
 	go func() {
 		<-cin
-		out = f(wait, signal, args...)
+		out = f(wait, signal, broadcast, args...)
 		isDone = true
 		// ensure that resume returns when function completes
 		cstatus <- Done{}

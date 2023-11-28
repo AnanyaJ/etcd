@@ -32,7 +32,7 @@ type BlockingRaftNode[Key constraints.Ordered, ReturnType any] struct {
 	errorC           <-chan error
 	appliedC         chan ReturnType
 
-	applyFunc        func(wait func(Key), signal func(Key), args ...interface{}) ReturnType
+	applyFunc        func(wait func(Key), signal func(Key), broadcast func(Key), args ...interface{}) ReturnType
 	snapshotFunc     func() ([]byte, error)
 	loadSnapshotFunc func([]byte) error
 
@@ -67,9 +67,9 @@ func newBlockingRaftNode[Key constraints.Ordered, ReturnType any](
 
 func (n *BlockingRaftNode[Key, ReturnType]) start(app BlockingApp[Key, ReturnType]) {
 	// convert apply function into generic coroutine function
-	n.applyFunc = func(wait func(Key), signal func(Key), args ...interface{}) ReturnType {
+	n.applyFunc = func(wait func(Key), signal func(Key), broadcast func(Key), args ...interface{}) ReturnType {
 		op := args[0].([]byte)
-		return app.apply(op, n.access, wait, signal)
+		return app.apply(op, n.access, wait, signal, broadcast)
 	}
 	n.snapshotFunc = func() ([]byte, error) { return app.getSnapshot() }
 	n.loadSnapshotFunc = func(snapshot []byte) error { return app.loadSnapshot(snapshot) }
@@ -139,6 +139,16 @@ func (n *BlockingRaftNode[Key, ReturnType]) applyCommits() {
 						n.queues[key] = queue[1:]
 						runnable = append(runnable, unblocked)
 					}
+				case BroadcastMsg:
+					// this coro is still not blocked so add back to runnable stack
+					runnable = append(runnable, next)
+					key := status.(Broadcast[Key]).key
+					// unblock all waiters
+					for _, unblocked := range n.queues[key] {
+						runnable = append(runnable, unblocked)
+					}
+					// empty queue
+					n.queues[key] = n.queues[key][0:0]
 				case DoneMsg:
 					// inform client that op has completed
 					n.appliedC <- result

@@ -65,6 +65,7 @@ func (s *SnapshotsTestState) apply(
 	access func(func() []any) []any,
 	wait func(string),
 	signal func(string),
+	broadcast func(string),
 ) AppliedSnapshotsTestOp {
 	var opType int
 	err := decode(data, &opType)

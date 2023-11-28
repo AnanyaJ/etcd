@@ -3,6 +3,7 @@ package main
 const (
 	WaitMsg int = iota
 	SignalMsg
+	BroadcastMsg
 	DoneMsg
 )
 

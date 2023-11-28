@@ -47,6 +47,7 @@ func (s *LockServerKV) apply(
 	put func(string, bool),
 	wait func(string),
 	signal func(string),
+	broadcast func(string),
 ) AppliedLockOp {
 	op := lockOpFromBytes(data)
 	var returnVal bool

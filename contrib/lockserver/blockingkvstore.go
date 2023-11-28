@@ -16,7 +16,7 @@ type BlockingKVStore[Key constraints.Ordered, Value any, ReturnType any] struct 
 	errorC   <-chan error
 	appliedC chan ReturnType
 
-	applyFunc func(wait func(Key), signal func(Key), args ...interface{}) ReturnType
+	applyFunc func(wait func(Key), signal func(Key), broadcast func(Key), args ...interface{}) ReturnType
 
 	kvstore map[Key]Value
 	queues  map[Key]Queue[Coro[ReturnType]]
@@ -25,13 +25,13 @@ type BlockingKVStore[Key constraints.Ordered, Value any, ReturnType any] struct 
 func newBlockingKVStore[Key constraints.Ordered, Value any, ReturnType any](
 	commitC <-chan *commit,
 	errorC <-chan error,
-	apply func(op []byte, get func(Key) Value, put func(Key, Value), wait func(Key), signal func(Key)) ReturnType,
+	apply func(op []byte, get func(Key) Value, put func(Key, Value), wait func(Key), signal func(Key), broadcast func(Key)) ReturnType,
 ) <-chan ReturnType {
 	var kv *BlockingKVStore[Key, Value, ReturnType]
 	appliedC := make(chan ReturnType)
-	applyFunc := func(wait func(Key), signal func(Key), args ...interface{}) ReturnType {
+	applyFunc := func(wait func(Key), signal func(Key), broadcast func(Key), args ...interface{}) ReturnType {
 		op := args[0].([]byte)
-		return apply(op, kv.get, kv.put, wait, signal)
+		return apply(op, kv.get, kv.put, wait, signal, broadcast)
 	}
 	kv = &BlockingKVStore[Key, Value, ReturnType]{
 		commitC:   commitC,

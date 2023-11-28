@@ -77,17 +77,17 @@ func (s *LockServerRepl) processApplied() {
 		}
 	}
 }
-func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) AppliedLSReplOp {
+func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wait func(string), signal func(string), broadcast func(string)) AppliedLSReplOp {
 	op := lockOpFromBytes(data)
 	access(func() []any {
 		s.ongoingLock.Lock()
 		return []any{}
 	})
-	retVals6787216788982077646 := access(func() []any {
+	retVals199036035226684983 := access(func() []any {
 		ongoing, ok := s.ongoing[op.ClientID]
 		return []any{ongoing, ok}
 	})
-	ongoing, ok := retVals6787216788982077646[0].(OngoingOp), retVals6787216788982077646[1].(bool)
+	ongoing, ok := retVals199036035226684983[0].(OngoingOp), retVals199036035226684983[1].(bool)
 	if ok && ongoing.OpNum == op.OpNum {
 		access(func() []any {
 			s.ongoingLock.Unlock()
@@ -103,11 +103,11 @@ func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wai
 		s.ongoingLock.Unlock()
 		return []any{}
 	})
-	retVals3815486816367651090 := access(func() []any {
+	retVals3933261911023622856 := access(func() []any {
 		isLocked, ok := s.locks[op.LockName]
 		return []any{isLocked, ok}
 	})
-	isLocked, ok := retVals3815486816367651090[0].(bool), retVals3815486816367651090[1].(bool)
+	isLocked, ok := retVals3933261911023622856[0].(bool), retVals3933261911023622856[1].(bool)
 	if !ok {
 		access(func() []any {
 			s.locks[op.LockName] = false
@@ -119,11 +119,11 @@ func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wai
 	case AcquireOp:
 		for isLocked {
 			wait(op.LockName)
-			retVals1430082122410740958 := access(func() []any {
+			retVals8850193706589257113 := access(func() []any {
 				isLocked := s.locks[op.LockName]
 				return []any{isLocked}
 			})
-			isLocked = retVals1430082122410740958[0].(bool)
+			isLocked = retVals8850193706589257113[0].(bool)
 		}
 		access(func() []any {
 			s.locks[op.LockName] = true

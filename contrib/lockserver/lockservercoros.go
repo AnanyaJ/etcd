@@ -66,7 +66,7 @@ func (s *CoroLockServer) applyCommits(commitC <-chan *commit, errorC <-chan erro
 		for _, data := range commit.data {
 			op := lockOpFromBytes(data)
 
-			var apply func(lockName string, wait func(string), signal func(string)) bool
+			var apply func(lockName string, wait func(string), signal func(string), broadcast func(string)) bool
 			switch op.OpType {
 			case AcquireOp:
 				apply = s.acquire
@@ -75,9 +75,9 @@ func (s *CoroLockServer) applyCommits(commitC <-chan *commit, errorC <-chan erro
 			case IsLockedOp:
 				apply = s.isLocked
 			}
-			applyFunc := func(wait func(string), signal func(string), args ...interface{}) bool {
+			applyFunc := func(wait func(string), signal func(string), broadcast func(string), args ...interface{}) bool {
 				lockName := args[0].(string)
-				return apply(lockName, wait, signal)
+				return apply(lockName, wait, signal, broadcast)
 			}
 
 			// new coro is initially the only runnable one
@@ -122,7 +122,7 @@ func (s *CoroLockServer) applyCommits(commitC <-chan *commit, errorC <-chan erro
 	}
 }
 
-func (s *CoroLockServer) acquire(lockName string, wait func(string), signal func(string)) bool {
+func (s *CoroLockServer) acquire(lockName string, wait func(string), signal func(string), broadcast func(string)) bool {
 	// locks are unnecessary here because code between wait/signal calls is
 	// executed atomically and there is only one thread applying ops
 	s.addLock(lockName)
@@ -136,7 +136,7 @@ func (s *CoroLockServer) acquire(lockName string, wait func(string), signal func
 	return true
 }
 
-func (s *CoroLockServer) release(lockName string, wait func(string), signal func(string)) bool {
+func (s *CoroLockServer) release(lockName string, wait func(string), signal func(string), broadcast func(string)) bool {
 	s.addLock(lockName)
 	lock := s.locks[lockName]
 
@@ -149,7 +149,7 @@ func (s *CoroLockServer) release(lockName string, wait func(string), signal func
 	return true
 }
 
-func (s *CoroLockServer) isLocked(lockName string, wait func(string), signal func(string)) bool {
+func (s *CoroLockServer) isLocked(lockName string, wait func(string), signal func(string), broadcast func(string)) bool {
 	s.addLock(lockName)
 	return s.locks[lockName].IsLocked
 }

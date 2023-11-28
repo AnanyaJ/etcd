@@ -73,7 +73,7 @@ package main
 // 		log.Fatalf("Failed to marshal state")
 // 	}
 // }
-// func (s *LockServerPointers) apply(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) []byte {
+// func (s *LockServerPointers) apply(data []byte, access func(func() []any) []any, wait func(string), signal func(string), broadcast func(string)) []byte {
 // 	op := lockOpFromBytes(data)
 // 	locks := s.getLocks(access)
 // 	isLocked := access(func() []any {

@@ -52,7 +52,7 @@ func TestCoro(t *testing.T) {
 	}
 }
 
-func f(wait func(int), signal func(int), args ...interface{}) error {
+func f(wait func(int), signal func(int), broadcast func(int), args ...interface{}) error {
 	first := args[0].(*int)
 	second := args[1].(*int)
 

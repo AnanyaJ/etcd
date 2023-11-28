@@ -83,6 +83,7 @@ package main
 // 	access func(func() []any) []any, // TODO: add this parameter during translation
 // 	wait func(string),
 // 	signal func(string),
+// 	broadcast func(string),
 // ) AppliedLSReplOp {
 // 	op := lockOpFromBytes(data)
 

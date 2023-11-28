@@ -56,6 +56,7 @@ func (kv *KVServer) apply(
 	access func(func() []any) []any,
 	wait func(string),
 	signal func(string),
+	broadcast func(string),
 ) AppliedKVOp {
 	var op KVServerOp
 	decodeNoErr(data, &op)
