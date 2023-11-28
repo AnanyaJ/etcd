@@ -9,6 +9,11 @@ type LockQueue[T any] struct {
 	Queue    Queue[T]
 }
 
+type KeyQueue[T any] struct {
+	Value int
+	Queue Queue[T]
+}
+
 type AppliedOp[OpType, ResultType any] struct {
 	op     OpType
 	result ResultType

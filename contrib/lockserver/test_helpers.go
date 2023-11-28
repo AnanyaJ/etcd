@@ -60,6 +60,50 @@ func translated_lockserver_setup() (srv *httptest.Server, cli *http.Client, prop
 	return srv, cli, proposeC, confChangeC
 }
 
+func queue_kvserver_setup() (srv *httptest.Server, cli *http.Client, proposeC chan []byte, confChangeC chan raftpb.ConfChange) {
+	clusters := []string{"http://127.0.0.1:9021"}
+	proposeC = make(chan []byte)
+	confChangeC = make(chan raftpb.ConfChange)
+
+	var kv *QueueKVServer
+	getSnapshot := func() ([]byte, error) { return kv.getSnapshot() }
+	commitC, errorC, snapshotterReady := newRaftNode(1, clusters, false, getSnapshot, proposeC, confChangeC, true)
+
+	kv = newQueueKVServer(<-snapshotterReady, proposeC, commitC, errorC)
+
+	srv = httptest.NewServer(&httpKVAPI{
+		server: kv,
+	})
+
+	// wait for server to start
+	<-time.After(time.Second * 3)
+
+	cli = srv.Client()
+
+	return srv, cli, proposeC, confChangeC
+}
+
+func translated_kvserver_setup() (srv *httptest.Server, cli *http.Client, proposeC chan []byte, confChangeC chan raftpb.ConfChange) {
+	clusters := []string{"http://127.0.0.1:9021"}
+	proposeC = make(chan []byte)
+	confChangeC = make(chan raftpb.ConfChange)
+
+	raftNode, _, appliedC := newBlockingRaftNode[string, AppliedKVOp](1, clusters, false, proposeC, confChangeC, true)
+	kv := newKVServer(proposeC, appliedC)
+	raftNode.start(kv)
+
+	srv = httptest.NewServer(&httpKVAPI{
+		server: kv,
+	})
+
+	// wait for server to start
+	<-time.After(time.Second * 3)
+
+	cli = srv.Client()
+
+	return srv, cli, proposeC, confChangeC
+}
+
 func stop_server(srv *httptest.Server, proposeC chan []byte, confChangeC chan raftpb.ConfChange) {
 	srv.Close()
 	close(proposeC)
@@ -104,6 +148,9 @@ func getResponse(t testing.TB, cli *http.Client, req *http.Request) bool {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Response failed, status %v", resp.Status)
+	}
 	return parseResponse(t, resp)
 }
 
@@ -119,4 +166,32 @@ func checkRelease(t testing.TB, got bool, wasLocked bool) {
 	if got != expected {
 		t.Fatalf("Release: expected %t, got %t", expected, got)
 	}
+}
+
+func makeKVIncRequest(t testing.TB, serverURL string, key string) *http.Request {
+	url := fmt.Sprintf("%s/increment", serverURL)
+	body, err := json.Marshal(&KVRequest{Key: key, OpNum: nrand()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "text/html; charset=utf-8")
+	return req
+}
+
+func makeKVWaitRequest(t testing.TB, serverURL string, key string, untilVal int) *http.Request {
+	url := fmt.Sprintf("%s/wait", serverURL)
+	body, err := json.Marshal(&KVRequest{Key: key, UntilVal: untilVal, OpNum: nrand()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "text/html; charset=utf-8")
+	return req
 }

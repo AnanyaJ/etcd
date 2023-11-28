@@ -1,85 +1,8 @@
 package main
 
-import "encoding/json"
+type KVServer interface {
+	Increment(key string, opNum int64)
+	Wait(key string, untilValue int, opNum int64)
 
-const (
-	IncrementOp int = iota
-	WaitOp
-)
-
-type AppliedKVOp AppliedOp[KVServerOp, struct{}]
-
-type KVServer struct {
-	kv map[string]int
-
-	proposeC  chan []byte
-	opManager *OpManager
-	appliedC  <-chan AppliedKVOp
-}
-
-func newKVServer(proposeC chan []byte, appliedC <-chan AppliedKVOp) *KVServer {
-	kv := &KVServer{
-		kv:        make(map[string]int),
-		proposeC:  proposeC,
-		opManager: newOpManager(),
-		appliedC:  appliedC,
-	}
-	go kv.processApplied()
-	return kv
-}
-
-// Propose op that some RPC handler wants to replicate
-func (kv *KVServer) startOp(opType int, key string, val int, opNum int64) bool {
-	op := KVServerOp{OpNum: opNum, OpType: opType, Key: key, Val: val}
-	result := kv.opManager.addOp(opNum)
-	kv.proposeC <- encodeNoErr(op)
-	return <-result
-}
-
-func (kv *KVServer) Increment(key string, opNum int64) {
-	kv.startOp(IncrementOp, key, 0, opNum)
-}
-
-func (kv *KVServer) Wait(key string, untilValue int, opNum int64) bool {
-	return kv.startOp(WaitOp, key, untilValue, opNum)
-}
-
-func (kv *KVServer) processApplied() {
-	// ops that been executed to completion
-	for appliedOp := range kv.appliedC {
-		kv.opManager.reportOpFinished(appliedOp.op.OpNum, true)
-	}
-}
-
-func (kv *KVServer) apply(
-	data []byte,
-	access func(func() []any) []any,
-	wait func(string),
-	signal func(string),
-	broadcast func(string),
-) AppliedKVOp {
-	var op KVServerOp
-	decodeNoErr(data, &op)
-
-	switch op.OpType {
-	case IncrementOp:
-		kv.kv[op.Key]++ // @put
-		signal(op.Key)
-	case WaitOp:
-		val := kv.kv[op.Key] // @get int
-		for val != op.Val {
-			wait(op.Key)
-			val = kv.kv[op.Key] // @get int
-		}
-	}
-
-	return AppliedKVOp{op, struct{}{}}
-}
-
-func (kv *KVServer) getSnapshot() ([]byte, error) {
-	return json.Marshal(kv.kv)
-}
-
-func (kv *KVServer) loadSnapshot(snapshot []byte) error {
-	return json.Unmarshal(snapshot, &kv.kv)
+	getSnapshot() ([]byte, error)
 }
