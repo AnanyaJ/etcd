@@ -65,6 +65,42 @@ func (s *QueueLockServer) processApplied() {
 	}
 }
 
+func (s *QueueLockServer) apply(data []byte, out chan Done) {
+	op := lockOpFromBytes(data)
+	s.addLock(op.LockName)
+	lock := s.locks[op.LockName]
+
+	switch op.OpType {
+	case AcquireOp:
+		if lock.IsLocked {
+			lock.Queue = append(lock.Queue, op)
+		} else {
+			lock.IsLocked = true
+			s.appliedC <- AppliedLSReplOp{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: true}}
+		}
+	case ReleaseOp:
+		if !lock.IsLocked {
+			s.appliedC <- AppliedLSReplOp{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: false}} // lock already free
+			break
+		} else {
+			if len(lock.Queue) > 0 {
+				// pass lock to next waiting op
+				unblocked := lock.Queue[0]
+				lock.Queue = lock.Queue[1:]
+				s.appliedC <- AppliedLSReplOp{unblocked, OngoingOp{OpNum: unblocked.OpNum, Done: true, Result: true}}
+			} else {
+				lock.IsLocked = false
+			}
+
+			s.appliedC <- AppliedLSReplOp{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: true}}
+		}
+	case IsLockedOp:
+		s.appliedC <- AppliedLSReplOp{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: lock.IsLocked}}
+	}
+
+	out <- Done{}
+}
+
 func (s *QueueLockServer) applyCommits(commitC <-chan *commit, errorC <-chan error) {
 	for commit := range commitC {
 		if commit == nil {
@@ -74,37 +110,9 @@ func (s *QueueLockServer) applyCommits(commitC <-chan *commit, errorC <-chan err
 		}
 
 		for _, data := range commit.data {
-			op := lockOpFromBytes(data)
-			s.addLock(op.LockName)
-			lock := s.locks[op.LockName]
-
-			switch op.OpType {
-			case AcquireOp:
-				if lock.IsLocked {
-					lock.Queue = append(lock.Queue, op)
-				} else {
-					lock.IsLocked = true
-					s.appliedC <- AppliedLSReplOp{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: true}}
-				}
-			case ReleaseOp:
-				if !lock.IsLocked {
-					s.appliedC <- AppliedLSReplOp{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: false}} // lock already free
-					break
-				} else {
-					if len(lock.Queue) > 0 {
-						// pass lock to next waiting op
-						unblocked := lock.Queue[0]
-						lock.Queue = lock.Queue[1:]
-						s.appliedC <- AppliedLSReplOp{unblocked, OngoingOp{OpNum: unblocked.OpNum, Done: true, Result: true}}
-					} else {
-						lock.IsLocked = false
-					}
-
-					s.appliedC <- AppliedLSReplOp{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: true}}
-				}
-			case IsLockedOp:
-				s.appliedC <- AppliedLSReplOp{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: lock.IsLocked}}
-			}
+			out := make(chan Done)
+			go s.apply(data, out)
+			<-out
 		}
 
 		close(commit.applyDoneC)
