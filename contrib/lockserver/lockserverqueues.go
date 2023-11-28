@@ -12,6 +12,7 @@ type QueueLockServer struct {
 	opManager   *OpManager
 	locks       map[string]*LockQueue[LockOp]
 	snapshotter *snap.Snapshotter
+	appliedC    chan AppliedLSReplOp
 }
 
 // Replicated lock service built using a queue for each lock. This lock server
@@ -25,10 +26,12 @@ func newQueueLockServer(snapshotter *snap.Snapshotter, proposeC chan<- []byte, c
 		opManager:   newOpManager(),
 		locks:       make(map[string]*LockQueue[LockOp]),
 		snapshotter: snapshotter,
+		appliedC:    make(chan AppliedLSReplOp),
 	}
 	s.loadSnapshot()
 	// apply commits from raft until error
 	go s.applyCommits(commitC, errorC)
+	go s.processApplied()
 	return s
 }
 
@@ -51,6 +54,17 @@ func (s *QueueLockServer) IsLocked(lockName string, clientID ClientID, opNum int
 	return s.startOp(IsLockedOp, lockName, clientID, opNum)
 }
 
+func (s *QueueLockServer) processApplied() {
+	// ops that been executed to completion
+	for appliedOp := range s.appliedC {
+		op := appliedOp.op
+		ongoingOp := appliedOp.result
+		if ongoingOp.Done {
+			s.opManager.reportOpFinished(op.OpNum, ongoingOp.Result) // inform client of completion
+		}
+	}
+}
+
 func (s *QueueLockServer) applyCommits(commitC <-chan *commit, errorC <-chan error) {
 	for commit := range commitC {
 		if commit == nil {
@@ -70,25 +84,26 @@ func (s *QueueLockServer) applyCommits(commitC <-chan *commit, errorC <-chan err
 					lock.Queue = append(lock.Queue, op)
 				} else {
 					lock.IsLocked = true
-					s.opManager.reportOpFinished(op.OpNum, true)
+					s.appliedC <- AppliedLSReplOp{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: true}}
 				}
 			case ReleaseOp:
 				if !lock.IsLocked {
-					s.opManager.reportOpFinished(op.OpNum, false) // lock already free
-				}
-
-				if len(lock.Queue) > 0 {
-					// pass lock to next waiting op
-					unblocked := lock.Queue[0]
-					lock.Queue = lock.Queue[1:]
-					s.opManager.reportOpFinished(unblocked.OpNum, true)
+					s.appliedC <- AppliedLSReplOp{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: false}} // lock already free
+					break
 				} else {
-					lock.IsLocked = false
-				}
+					if len(lock.Queue) > 0 {
+						// pass lock to next waiting op
+						unblocked := lock.Queue[0]
+						lock.Queue = lock.Queue[1:]
+						s.appliedC <- AppliedLSReplOp{unblocked, OngoingOp{OpNum: unblocked.OpNum, Done: true, Result: true}}
+					} else {
+						lock.IsLocked = false
+					}
 
-				s.opManager.reportOpFinished(op.OpNum, true)
+					s.appliedC <- AppliedLSReplOp{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: true}}
+				}
 			case IsLockedOp:
-				s.opManager.reportOpFinished(op.OpNum, lock.IsLocked)
+				s.appliedC <- AppliedLSReplOp{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: lock.IsLocked}}
 			}
 		}
 
