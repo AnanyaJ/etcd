@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/gob"
 	"encoding/json"
-	"sync"
 )
 
 type ClientID int64
@@ -14,38 +13,37 @@ type OngoingOp struct {
 	Result bool
 }
 type LockServerSnapshot struct {
-	Locks map[ // Propose op that some RPC handler wants to replicate
+	Locks map[ // ongoing     map[ClientID]OngoingOp
+	// ongoingLock *sync.Mutex
+	// ongoing:     make(map[ClientID]OngoingOp),
+	// ongoingLock: &sync.Mutex{},
+	// Propose op that some RPC handler wants to replicate
 	// ops that been executed to completion
-	// store result in case of duplicate requests
+	// s.ongoingLock.Lock()
+	// s.ongoing[op.ClientID] = ongoingOp // store result in case of duplicate requests
+	// s.ongoingLock.Unlock()
 	// inform client of completion
 	// TODO: add this parameter during translation
-	// @put
-	// @get OngoingOp bool
-	// @put
-	// already started or finished applying
-	// @put
-	// @put
 	// @get bool bool (need to specify types of return values)
 	// @put
 	// keep waiting while lock is held
 	// @get bool
 	// @put
 	// @put
+	// s.ongoing = snapshot.Ongoing
 	string]bool
 	Ongoing map[ClientID]OngoingOp
 }
 type LockServerRepl struct {
-	locks       map[string]bool
-	ongoing     map[ClientID]OngoingOp
-	ongoingLock *sync.Mutex
-	proposeC    chan []byte
-	opManager   *OpManager
-	appliedC    <-chan AppliedLSReplOp
+	locks     map[string]bool
+	proposeC  chan []byte
+	opManager *OpManager
+	appliedC  <-chan AppliedLSReplOp
 }
 
 func newReplLockServer(proposeC chan []byte, appliedC <-chan AppliedLSReplOp) *LockServerRepl {
 	gob.Register(OngoingOp{})
-	s := &LockServerRepl{locks: make(map[string]bool), ongoing: make(map[ClientID]OngoingOp), ongoingLock: &sync.Mutex{}, proposeC: proposeC, opManager: newOpManager(), appliedC: appliedC}
+	s := &LockServerRepl{locks: make(map[string]bool), proposeC: proposeC, opManager: newOpManager(), appliedC: appliedC}
 	go s.processApplied()
 	return s
 }
@@ -70,44 +68,17 @@ func (s *LockServerRepl) processApplied() {
 		op := appliedOp.op
 		ongoingOp := appliedOp.result
 		if ongoingOp.Done {
-			s.ongoingLock.Lock()
-			s.ongoing[op.ClientID] = ongoingOp
-			s.ongoingLock.Unlock()
 			s.opManager.reportOpFinished(op.OpNum, ongoingOp.Result)
 		}
 	}
 }
 func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) AppliedLSReplOp {
 	op := lockOpFromBytes(data)
-	access(func() []any {
-		s.ongoingLock.Lock()
-		return []any{}
-	})
-	retVals6787216788982077646 := access(func() []any {
-		ongoing, ok := s.ongoing[op.ClientID]
-		return []any{ongoing, ok}
-	})
-	ongoing, ok := retVals6787216788982077646[0].(OngoingOp), retVals6787216788982077646[1].(bool)
-	if ok && ongoing.OpNum == op.OpNum {
-		access(func() []any {
-			s.ongoingLock.Unlock()
-			return []any{}
-		})
-		return AppliedLSReplOp{op, ongoing}
-	}
-	access(func() []any {
-		s.ongoing[op.ClientID] = OngoingOp{OpNum: op.OpNum, Done: false}
-		return []any{}
-	})
-	access(func() []any {
-		s.ongoingLock.Unlock()
-		return []any{}
-	})
-	retVals3815486816367651090 := access(func() []any {
+	retVals1992554826982793435 := access(func() []any {
 		isLocked, ok := s.locks[op.LockName]
 		return []any{isLocked, ok}
 	})
-	isLocked, ok := retVals3815486816367651090[0].(bool), retVals3815486816367651090[1].(bool)
+	isLocked, ok := retVals1992554826982793435[0].(bool), retVals1992554826982793435[1].(bool)
 	if !ok {
 		access(func() []any {
 			s.locks[op.LockName] = false
@@ -119,11 +90,11 @@ func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wai
 	case AcquireOp:
 		for isLocked {
 			wait(op.LockName)
-			retVals1430082122410740958 := access(func() []any {
+			retVals4892476052222618333 := access(func() []any {
 				isLocked := s.locks[op.LockName]
 				return []any{isLocked}
 			})
-			isLocked = retVals1430082122410740958[0].(bool)
+			isLocked = retVals4892476052222618333[0].(bool)
 		}
 		access(func() []any {
 			s.locks[op.LockName] = true
@@ -145,7 +116,7 @@ func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wai
 	return AppliedLSReplOp{op, OngoingOp{OpNum: op.OpNum, Done: true, Result: returnVal}}
 }
 func (s *LockServerRepl) getSnapshot() ([]byte, error) {
-	return json.Marshal(LockServerSnapshot{Locks: s.locks, Ongoing: s.ongoing})
+	return json.Marshal(LockServerSnapshot{Locks: s.locks})
 }
 func (s *LockServerRepl) loadSnapshot(data []byte) error {
 	var snapshot LockServerSnapshot
@@ -153,6 +124,5 @@ func (s *LockServerRepl) loadSnapshot(data []byte) error {
 		return err
 	}
 	s.locks = snapshot.Locks
-	s.ongoing = snapshot.Ongoing
 	return nil
 }

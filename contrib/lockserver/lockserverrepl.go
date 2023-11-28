@@ -3,7 +3,6 @@ package main
 // import (
 // 	"encoding/gob"
 // 	"encoding/json"
-// 	"sync"
 // )
 
 // type ClientID int64
@@ -21,9 +20,9 @@ package main
 // }
 
 // type LockServerRepl struct {
-// 	locks       map[string]bool
-// 	ongoing     map[ClientID]OngoingOp
-// 	ongoingLock *sync.Mutex
+// 	locks map[string]bool
+// 	// ongoing     map[ClientID]OngoingOp
+// 	// ongoingLock *sync.Mutex
 
 // 	proposeC  chan []byte
 // 	opManager *OpManager
@@ -33,12 +32,12 @@ package main
 // func newReplLockServer(proposeC chan []byte, appliedC <-chan AppliedLSReplOp) *LockServerRepl {
 // 	gob.Register(OngoingOp{})
 // 	s := &LockServerRepl{
-// 		locks:       make(map[string]bool),
-// 		ongoing:     make(map[ClientID]OngoingOp),
-// 		ongoingLock: &sync.Mutex{},
-// 		proposeC:    proposeC,
-// 		opManager:   newOpManager(),
-// 		appliedC:    appliedC,
+// 		locks: make(map[string]bool),
+// 		// ongoing:     make(map[ClientID]OngoingOp),
+// 		// ongoingLock: &sync.Mutex{},
+// 		proposeC:  proposeC,
+// 		opManager: newOpManager(),
+// 		appliedC:  appliedC,
 // 	}
 // 	go s.processApplied()
 // 	return s
@@ -70,9 +69,9 @@ package main
 // 		op := appliedOp.op
 // 		ongoingOp := appliedOp.result
 // 		if ongoingOp.Done {
-// 			s.ongoingLock.Lock()
-// 			s.ongoing[op.ClientID] = ongoingOp // store result in case of duplicate requests
-// 			s.ongoingLock.Unlock()
+// 			// s.ongoingLock.Lock()
+// 			// s.ongoing[op.ClientID] = ongoingOp // store result in case of duplicate requests
+// 			// s.ongoingLock.Unlock()
 // 			s.opManager.reportOpFinished(op.OpNum, ongoingOp.Result) // inform client of completion
 // 		}
 // 	}
@@ -85,15 +84,6 @@ package main
 // 	signal func(string),
 // ) AppliedLSReplOp {
 // 	op := lockOpFromBytes(data)
-
-// 	s.ongoingLock.Lock()                  // @put
-// 	ongoing, ok := s.ongoing[op.ClientID] // @get OngoingOp bool
-// 	if ok && ongoing.OpNum == op.OpNum {
-// 		s.ongoingLock.Unlock()              // @put
-// 		return AppliedLSReplOp{op, ongoing} // already started or finished applying
-// 	}
-// 	s.ongoing[op.ClientID] = OngoingOp{OpNum: op.OpNum, Done: false} // @put
-// 	s.ongoingLock.Unlock()                                           // @put
 
 // 	isLocked, ok := s.locks[op.LockName] // @get bool bool (need to specify types of return values)
 // 	if !ok {
@@ -123,7 +113,7 @@ package main
 // }
 
 // func (s *LockServerRepl) getSnapshot() ([]byte, error) {
-// 	return json.Marshal(LockServerSnapshot{Locks: s.locks, Ongoing: s.ongoing})
+// 	return json.Marshal(LockServerSnapshot{Locks: s.locks})
 // }
 
 // func (s *LockServerRepl) loadSnapshot(data []byte) error {
@@ -132,6 +122,6 @@ package main
 // 		return err
 // 	}
 // 	s.locks = snapshot.Locks
-// 	s.ongoing = snapshot.Ongoing
+// 	// s.ongoing = snapshot.Ongoing
 // 	return nil
 // }
