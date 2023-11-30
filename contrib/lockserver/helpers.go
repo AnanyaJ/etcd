@@ -2,9 +2,30 @@ package main
 
 import (
 	"bytes"
+	"compress/zlib"
 	"encoding/gob"
 	"log"
 )
+
+func compress(data []byte) ([]byte, error) {
+	var buffer bytes.Buffer
+	w := zlib.NewWriter(&buffer)
+	_, err := w.Write(data)
+	w.Close()
+	return buffer.Bytes(), err
+}
+
+func decompress(compressed []byte) ([]byte, error) {
+	buffer := bytes.NewBuffer(compressed)
+	r, err := zlib.NewReader(buffer)
+	if err != nil {
+		return nil, err
+	}
+	var data []byte
+	_, err = r.Read(data)
+	r.Close()
+	return data, err
+}
 
 func encode(x any) ([]byte, error) {
 	buf := new(bytes.Buffer)

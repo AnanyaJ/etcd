@@ -12,8 +12,8 @@ type KVServerRepl struct {
 	kv map[ // Propose op that some RPC handler wants to replicate
 	// ops that been executed to completion
 	// @put
-	// @get int
-	// @get int
+	// @get bool
+	// @get bool
 	string]int
 	proposeC  chan []byte
 	opManager *OpManager
@@ -54,18 +54,18 @@ func (kv *KVServerRepl) apply(data []byte, access func(func() []any) []any, wait
 		})
 		broadcast(op.Key)
 	case WaitOp:
-		retVals7781983707723180139 := access(func() []any {
-			val := kv.kv[op.Key]
-			return []any{val}
+		retVals3369973376417970999 := access(func() []any {
+			ready := kv.kv[op.Key] == op.Val
+			return []any{ready}
 		})
-		val := retVals7781983707723180139[0].(int)
-		for val < op.Val {
+		ready := retVals3369973376417970999[0].(bool)
+		for !ready {
 			wait(op.Key)
-			retVals1188359123806390392 := access(func() []any {
-				val := kv.kv[op.Key]
-				return []any{val}
+			retVals6536377187668623666 := access(func() []any {
+				ready := kv.kv[op.Key] == op.Val
+				return []any{ready}
 			})
-			val = retVals1188359123806390392[0].(int)
+			ready = retVals6536377187668623666[0].(bool)
 		}
 	}
 	return AppliedKVOp{op, struct{}{}}

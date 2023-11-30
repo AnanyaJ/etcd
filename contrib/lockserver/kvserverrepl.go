@@ -66,10 +66,10 @@ package main
 // 		kv.kv[op.Key]++ // @put
 // 		broadcast(op.Key)
 // 	case WaitOp:
-// 		val := kv.kv[op.Key] // @get int
-// 		for val < op.Val {
+// 		ready := kv.kv[op.Key] == op.Val // @get bool
+// 		for !ready {
 // 			wait(op.Key)
-// 			val = kv.kv[op.Key] // @get int
+// 			ready = kv.kv[op.Key] == op.Val // @get bool
 // 		}
 // 	}
 

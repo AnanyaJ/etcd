@@ -180,7 +180,12 @@ func (n *BlockingRaftNode[Key, ReturnType]) getSnapshot() ([]byte, error) {
 		return nil, err
 	}
 	snapshot := Snapshot[Key]{state, queues}
-	return encode(snapshot)
+
+	data, err := encode(snapshot)
+	if err != nil {
+		return nil, err
+	}
+	return compress(data)
 }
 
 func (n *BlockingRaftNode[Key, ReturnType]) loadSnapshot() {
@@ -199,7 +204,12 @@ func (n *BlockingRaftNode[Key, ReturnType]) loadSnapshot() {
 	}
 }
 
-func (n *BlockingRaftNode[Key, ReturnType]) recoverFromSnapshot(data []byte) error {
+func (n *BlockingRaftNode[Key, ReturnType]) recoverFromSnapshot(compressed []byte) error {
+	data, err := decompress(compressed)
+	if err != nil {
+		return err
+	}
+
 	var snapshot Snapshot[Key]
 	if err := decode(data, &snapshot); err != nil {
 		return err

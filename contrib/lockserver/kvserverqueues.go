@@ -61,7 +61,7 @@ func (s *QueueKVServer) applyCommits(commitC <-chan *commit, errorC <-chan error
 				s.keys[op.Key].Value++
 				stillBlocked := Queue[KVServerOp]{}
 				for _, blocked := range s.keys[op.Key].Queue {
-					if s.keys[op.Key].Value >= blocked.Val {
+					if s.keys[op.Key].Value == blocked.Val {
 						s.opManager.reportOpFinished(blocked.OpNum, true)
 					} else {
 						stillBlocked = append(stillBlocked, blocked)
