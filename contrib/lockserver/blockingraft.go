@@ -136,7 +136,11 @@ func (n *BlockingRaftNode[Key, ReturnType]) applyCommits() {
 					if len(queue) > 0 {
 						// unblock exactly one coro waiting on key
 						unblocked := queue[0]
-						n.queues[key] = queue[1:]
+						if len(queue) == 1 {
+							delete(n.queues, key)
+						} else {
+							n.queues[key] = queue[1:]
+						}
 						runnable = append(runnable, unblocked)
 					}
 				case BroadcastMsg:
@@ -148,7 +152,7 @@ func (n *BlockingRaftNode[Key, ReturnType]) applyCommits() {
 						runnable = append(runnable, unblocked)
 					}
 					// empty queue
-					n.queues[key] = n.queues[key][0:0]
+					delete(n.queues, key)
 				case DoneMsg:
 					// inform client that op has completed
 					n.appliedC <- result
