@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/gob"
+	"io"
 	"log"
 )
 
@@ -18,13 +19,11 @@ func compress(data []byte) ([]byte, error) {
 func decompress(compressed []byte) ([]byte, error) {
 	buffer := bytes.NewBuffer(compressed)
 	r, err := zlib.NewReader(buffer)
+	r.Close()
 	if err != nil {
 		return nil, err
 	}
-	var data []byte
-	_, err = r.Read(data)
-	r.Close()
-	return data, err
+	return io.ReadAll(r)
 }
 
 func encode(x any) ([]byte, error) {
