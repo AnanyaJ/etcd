@@ -3,7 +3,7 @@ package main
 import "encoding/json"
 
 type LockServerRepl struct {
-	locks map // Propose op that some RPC handler wants to replicate
+	locks map[ // Propose op that some RPC handler wants to replicate
 	// ops that been executed to completion
 	// TODO: add this parameter during translation
 	// @get bool bool (need to specify types of return values)
@@ -12,7 +12,7 @@ type LockServerRepl struct {
 	// @get bool
 	// @put
 	// @put
-	[string]bool
+	string]bool
 	proposeC  chan []byte
 	opManager *OpManager
 	appliedC  <-chan AppliedOp
@@ -48,12 +48,12 @@ func (s *LockServerRepl) processApplied() {
 }
 func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wait func(string), signal func(string)) []byte {
 	op := lockOpFromBytes(data)
-	retVals4772972299880648690 := access(func() []any {
+	replicatedStateAccess1 := access(func() []any {
 		isLocked, ok := s.locks[op.LockName]
 		return []any{isLocked, ok}
 	})
-	isLocked := retVals4772972299880648690[0].(bool)
-	ok := retVals4772972299880648690[1].(bool)
+	isLocked := replicatedStateAccess1[0].(bool)
+	ok := replicatedStateAccess1[1].(bool)
 	if !ok {
 		access(func() []any {
 			s.locks[op.LockName] = false
@@ -65,11 +65,11 @@ func (s *LockServerRepl) apply(data []byte, access func(func() []any) []any, wai
 	case AcquireOp:
 		for isLocked {
 			wait(op.LockName)
-			retVals6179762851697513206 := access(func() []any {
+			replicatedStateAccess0 := access(func() []any {
 				isLocked := s.locks[op.LockName]
 				return []any{isLocked}
 			})
-			isLocked = retVals6179762851697513206[0].(bool)
+			isLocked = replicatedStateAccess0[0].(bool)
 		}
 		access(func() []any {
 			s.locks[op.LockName] = true

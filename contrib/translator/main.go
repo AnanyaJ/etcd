@@ -9,7 +9,6 @@ import (
 	"go/parser"
 	"go/token"
 	"log"
-	"math/rand"
 	"os"
 	"strconv"
 	"strings"
@@ -65,7 +64,7 @@ func getAccessCallExpr(input *ast.FuncLit) ast.Expr {
 	}
 }
 
-func wrapGetAccess(file *ast.File, node ast.Node, getComment string) {
+func wrapGetAccess(file *ast.File, node ast.Node, getComment string, counter int) {
 	assignStmt, ok := node.(*ast.AssignStmt)
 	if !ok {
 		log.Fatalf("%s can only be used to annotate an assignment", GetAnnotation)
@@ -95,7 +94,7 @@ func wrapGetAccess(file *ast.File, node ast.Node, getComment string) {
 	accessCall := getAccessCallExpr(accessCallLit)
 
 	// create unique variable name to store return values array
-	retValsVar := ast.NewIdent(fmt.Sprintf("retVals%d", rand.Int()))
+	retValsVar := ast.NewIdent(fmt.Sprintf("replicatedStateAccess%d", counter))
 
 	// assign access result to return values variable
 	retValsAssignment := &ast.AssignStmt{
@@ -187,10 +186,12 @@ func wrapPutAccess(file *ast.File, node ast.Node) {
 
 func modifyAST(file *ast.File, fset *token.FileSet) {
 	cmap := ast.NewCommentMap(fset, file, file.Comments)
+	stateAccessCounter := 0
 	for node, cGroup := range cmap {
 		getComment := findMatchingComment(cGroup, GetAnnotation)
 		if getComment != nil {
-			wrapGetAccess(file, node, *getComment)
+			wrapGetAccess(file, node, *getComment, stateAccessCounter)
+			stateAccessCounter++
 		}
 		if findMatchingComment(cGroup, PutAnnotation) != nil {
 			wrapPutAccess(file, node)
@@ -200,7 +201,7 @@ func modifyAST(file *ast.File, fset *token.FileSet) {
 
 func main() {
 	inputfile := flag.String("inputfile", "../lockserver/lockserverrepl.go", "Go RSM application file to translate")
-	outputfile := flag.String("outputfile", "../lockserver/lockserverrepltranslated.go", "Path to write generated RSM application file to")
+	outputfile := flag.String("outputfile", "../lockservertranslated/lockserverrepl.go", "Path to write generated RSM application file to")
 	flag.Parse()
 
 	fset := token.NewFileSet()
