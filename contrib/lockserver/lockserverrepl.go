@@ -52,7 +52,7 @@ func (s *LockServerRepl) processApplied() {
 
 func (s *LockServerRepl) apply(
 	data []byte,
-	access func(func() []any) []any, // TODO: add this parameter during translation
+	access func(func() []any) []any,
 	wait func(string),
 	signal func(string),
 ) []byte {

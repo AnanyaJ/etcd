@@ -3,16 +3,15 @@ package main
 import "encoding/json"
 
 type LockServerRepl struct {
-	locks map[ // Propose op that some RPC handler wants to replicate
+	locks map // Propose op that some RPC handler wants to replicate
 	// ops that been executed to completion
-	// TODO: add this parameter during translation
 	// @get bool bool (need to specify types of return values)
 	// @put
 	// keep waiting while lock is held
 	// @get bool
 	// @put
 	// @put
-	string]bool
+	[string]bool
 	proposeC  chan []byte
 	opManager *OpManager
 	appliedC  <-chan AppliedOp
