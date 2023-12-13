@@ -6,6 +6,7 @@ type LockServerRepl struct {
 	locks map // Propose op that some RPC handler wants to replicate
 	// ops that been executed to completion
 	// @get bool bool (need to specify types of return values)
+	// new lock
 	// @put
 	// keep waiting while lock is held
 	// @get bool

@@ -59,7 +59,7 @@ func (s *LockServerRepl) apply(
 	op := lockOpFromBytes(data)
 
 	isLocked, ok := s.locks[op.LockName] // @get bool bool (need to specify types of return values)
-	if !ok {
+	if !ok {                             // new lock
 		s.locks[op.LockName] = false // @put
 	}
 
