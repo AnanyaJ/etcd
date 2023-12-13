@@ -21,53 +21,53 @@ type PartialOp struct {
 	NumResumes int
 }
 
-type Snapshot[Key constraints.Ordered] struct {
+type Snapshot[CondVar constraints.Ordered] struct {
 	State  []byte
-	Queues map[Key]Queue[PartialOp]
+	Queues map[CondVar]Queue[PartialOp]
 }
 
-type BlockingRaftNode[Key constraints.Ordered, ReturnType any] struct {
+type BlockingRaftNode[CondVar constraints.Ordered, ReturnType any] struct {
 	snapshotterReady <-chan *snap.Snapshotter
 	commitC          <-chan *commit
 	errorC           <-chan error
 	appliedC         chan ReturnType
 
-	applyFunc        func(wait func(Key), signal func(Key), broadcast func(Key), args ...interface{}) ReturnType
+	applyFunc        func(wait func(CondVar), signal func(CondVar), broadcast func(CondVar), args ...interface{}) ReturnType
 	snapshotFunc     func() ([]byte, error)
 	loadSnapshotFunc func([]byte) error
 
-	queues map[Key]Queue[CoroWithAccesses[ReturnType]]
+	queues map[CondVar]Queue[CoroWithAccesses[ReturnType]]
 
 	currentlyExecuting *CoroWithAccesses[ReturnType]
 	replaying          bool
 	accessNum          int
 }
 
-func newBlockingRaftNode[Key constraints.Ordered, ReturnType any](
+func newBlockingRaftNode[CondVar constraints.Ordered, ReturnType any](
 	id int,
 	peers []string,
 	join bool,
 	proposeC <-chan []byte,
 	confChangeC <-chan raftpb.ConfChange,
 	clearLog bool,
-) (*BlockingRaftNode[Key, ReturnType], <-chan error, <-chan ReturnType) {
-	var n *BlockingRaftNode[Key, ReturnType]
+) (*BlockingRaftNode[CondVar, ReturnType], <-chan error, <-chan ReturnType) {
+	var n *BlockingRaftNode[CondVar, ReturnType]
 	getSnapshot := func() ([]byte, error) { return n.getSnapshot() }
 	commitC, errorC, snapshotterReady := newRaftNode(id, peers, join, getSnapshot, proposeC, confChangeC, clearLog)
 	appliedC := make(chan ReturnType)
-	n = &BlockingRaftNode[Key, ReturnType]{
+	n = &BlockingRaftNode[CondVar, ReturnType]{
 		snapshotterReady: snapshotterReady,
 		commitC:          commitC,
 		errorC:           errorC,
 		appliedC:         appliedC,
-		queues:           make(map[Key]Queue[CoroWithAccesses[ReturnType]]),
+		queues:           make(map[CondVar]Queue[CoroWithAccesses[ReturnType]]),
 	}
 	return n, errorC, appliedC
 }
 
-func (n *BlockingRaftNode[Key, ReturnType]) start(app BlockingApp[Key, ReturnType]) {
+func (n *BlockingRaftNode[CondVar, ReturnType]) start(app BlockingApp[CondVar, ReturnType]) {
 	// convert apply function into generic coroutine function
-	n.applyFunc = func(wait func(Key), signal func(Key), broadcast func(Key), args ...interface{}) ReturnType {
+	n.applyFunc = func(wait func(CondVar), signal func(CondVar), broadcast func(CondVar), args ...interface{}) ReturnType {
 		op := args[0].([]byte)
 		return app.apply(op, n.access, wait, signal, broadcast)
 	}
@@ -78,7 +78,7 @@ func (n *BlockingRaftNode[Key, ReturnType]) start(app BlockingApp[Key, ReturnTyp
 	go n.applyCommits()
 }
 
-func (n *BlockingRaftNode[Key, ReturnType]) access(accessFunc func() []any) []any {
+func (n *BlockingRaftNode[CondVar, ReturnType]) access(accessFunc func() []any) []any {
 	// coroutine corresponding to this access
 	coro := n.currentlyExecuting
 	var out []any
@@ -99,7 +99,7 @@ func (n *BlockingRaftNode[Key, ReturnType]) access(accessFunc func() []any) []an
 	return out
 }
 
-func (n *BlockingRaftNode[Key, ReturnType]) applyCommits() {
+func (n *BlockingRaftNode[CondVar, ReturnType]) applyCommits() {
 	for commit := range n.commitC {
 		if commit == nil {
 			// signaled to load snapshot
@@ -109,7 +109,7 @@ func (n *BlockingRaftNode[Key, ReturnType]) applyCommits() {
 
 		for _, data := range commit.data {
 			// new coro is initially the only runnable one
-			coro := CreateCoro[Key, ReturnType](n.applyFunc, data)
+			coro := CreateCoro[CondVar, ReturnType](n.applyFunc, data)
 			runnable := []CoroWithAccesses[ReturnType]{CoroWithAccesses[ReturnType]{OpData: data, Resume: coro}}
 			// resume coros until no coro can make more progress -- ensures
 			// deterministic behavior since timing of ops arriving on
@@ -126,12 +126,12 @@ func (n *BlockingRaftNode[Key, ReturnType]) applyCommits() {
 
 				switch status.msgType() {
 				case WaitMsg:
-					key := status.(Wait[Key]).key
+					key := status.(Wait[CondVar]).key
 					n.queues[key] = append(n.queues[key], next)
 				case SignalMsg:
 					// this coro is still not blocked so add back to runnable stack
 					runnable = append(runnable, next)
-					key := status.(Signal[Key]).key
+					key := status.(Signal[CondVar]).key
 					queue := n.queues[key]
 					if len(queue) > 0 {
 						// unblock exactly one coro waiting on key
@@ -146,7 +146,7 @@ func (n *BlockingRaftNode[Key, ReturnType]) applyCommits() {
 				case BroadcastMsg:
 					// this coro is still not blocked so add back to runnable stack
 					runnable = append(runnable, next)
-					key := status.(Broadcast[Key]).key
+					key := status.(Broadcast[CondVar]).key
 					// unblock all waiters
 					for _, unblocked := range n.queues[key] {
 						runnable = append(runnable, unblocked)
@@ -167,9 +167,9 @@ func (n *BlockingRaftNode[Key, ReturnType]) applyCommits() {
 	}
 }
 
-func (n *BlockingRaftNode[Key, ReturnType]) getSnapshot() ([]byte, error) {
+func (n *BlockingRaftNode[CondVar, ReturnType]) getSnapshot() ([]byte, error) {
 	// store queues of partially completed operations
-	queues := make(map[Key]Queue[PartialOp])
+	queues := make(map[CondVar]Queue[PartialOp])
 	for key, ops := range n.queues {
 		partialOps := Queue[PartialOp]{}
 		for _, op := range ops {
@@ -183,7 +183,7 @@ func (n *BlockingRaftNode[Key, ReturnType]) getSnapshot() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	snapshot := Snapshot[Key]{state, queues}
+	snapshot := Snapshot[CondVar]{state, queues}
 
 	data, err := encode(snapshot)
 	if err != nil {
@@ -192,7 +192,7 @@ func (n *BlockingRaftNode[Key, ReturnType]) getSnapshot() ([]byte, error) {
 	return compress(data)
 }
 
-func (n *BlockingRaftNode[Key, ReturnType]) loadSnapshot() {
+func (n *BlockingRaftNode[CondVar, ReturnType]) loadSnapshot() {
 	snapshotter := <-n.snapshotterReady
 	snapshot, err := snapshotter.Load()
 	if err == snap.ErrNoSnapshot {
@@ -208,13 +208,13 @@ func (n *BlockingRaftNode[Key, ReturnType]) loadSnapshot() {
 	}
 }
 
-func (n *BlockingRaftNode[Key, ReturnType]) recoverFromSnapshot(compressed []byte) error {
+func (n *BlockingRaftNode[CondVar, ReturnType]) recoverFromSnapshot(compressed []byte) error {
 	data, err := decompress(compressed)
 	if err != nil {
 		return err
 	}
 
-	var snapshot Snapshot[Key]
+	var snapshot Snapshot[CondVar]
 	if err := decode(data, &snapshot); err != nil {
 		return err
 	}
@@ -226,12 +226,12 @@ func (n *BlockingRaftNode[Key, ReturnType]) recoverFromSnapshot(compressed []byt
 
 	// replay partial ops and reconstruct wait queues
 	n.replaying = true
-	n.queues = map[Key]Queue[CoroWithAccesses[ReturnType]]{}
+	n.queues = map[CondVar]Queue[CoroWithAccesses[ReturnType]]{}
 	for key, partialOps := range snapshot.Queues {
 		ops := Queue[CoroWithAccesses[ReturnType]]{}
 		for _, partialOp := range partialOps {
 			// create new version of coroutine
-			resume := CreateCoro[Key, ReturnType](n.applyFunc, partialOp.OpData)
+			resume := CreateCoro[CondVar, ReturnType](n.applyFunc, partialOp.OpData)
 			coro := CoroWithAccesses[ReturnType]{partialOp.OpData, resume, partialOp.Accesses, partialOp.NumResumes}
 			// re-run coroutine until it reaches point at time of snapshot
 			n.currentlyExecuting = &coro

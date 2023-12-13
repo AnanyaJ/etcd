@@ -40,7 +40,7 @@ func makeRequest(client *http.Client, url string, lockNum int, clientNum int, op
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Fatalf("Response has error status ", resp.Status)
+		log.Fatalln("Response has error status ", resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
